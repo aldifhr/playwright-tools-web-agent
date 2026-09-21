@@ -1,0 +1,32 @@
+[
+  {
+    "id": "TC-001",
+    "area": "Page Content",
+    "type": "Positive",
+    "title": "Page title is Example Domain",
+    "preconditions": "Open https://example.com",
+    "testData": "N/A",
+    "steps": [
+      "Navigate to https://example.com",
+      "Assert page title equals 'Example Domain'"
+    ],
+    "expected": "Page title is 'Example Domain'",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-002",
+    "area": "Page Content",
+    "type": "Negative",
+    "title": "Non-existent element is not visible",
+    "preconditions": "Open https://example.com",
+    "testData": "Selector: button with text 'Submit'",
+    "steps": [
+      "Navigate to https://example.com",
+      "Assert that no button with text 'Submit' exists on the page"
+    ],
+    "expected": "No button with text 'Submit' found",
+    "priority": "Medium",
+    "severity": "Low"
+  }
+]

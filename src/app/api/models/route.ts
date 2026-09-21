@@ -1,0 +1,80 @@
+import { NextResponse } from "next/server";
+import { DEFAULT_BASE_URLS, ProviderId } from "@/lib/providers";
+
+export const maxDuration = 30;
+
+async function listOpenAI(baseUrl: string, apiKey: string): Promise<string[]> {
+  const base = (baseUrl || DEFAULT_BASE_URLS.openai).replace(/\/+$/, "");
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const r = await fetch(`${base}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: ctrl.signal,
+    });
+    if (!r.ok) {
+      const msg = await r.text().catch(() => "");
+      throw new Error(`OpenAI /models: ${r.status} ${msg.slice(0, 160)}`);
+    }
+    const j = (await r.json()) as { data?: { id: string }[] };
+    const ids = (j.data ?? []).map((d) => d.id).filter(Boolean);
+    // dahulukan model chat populer
+    const prio = ["gpt-4o", "gpt-4o-mini", "o4-mini", "o3-mini", "gpt-4.1"];
+    return [...new Set([...prio.filter((p) => ids.includes(p)), ...ids.sort()])].slice(0, 60);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function listAnthropic(baseUrl: string, apiKey: string): Promise<string[]> {
+  const base = (baseUrl || DEFAULT_BASE_URLS.anthropic).replace(/\/+$/, "");
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const r = await fetch(`${base}/models?limit=50`, {
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      signal: ctrl.signal,
+    });
+    if (!r.ok) {
+      const msg = await r.text().catch(() => "");
+      throw new Error(`Anthropic /models: ${r.status} ${msg.slice(0, 160)}`);
+    }
+    const j = (await r.json()) as { data?: { id: string }[] };
+    return (j.data ?? []).map((d) => d.id).filter(Boolean).slice(0, 60);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json().catch(() => ({}))) as {
+      provider?: ProviderId;
+      apiKey?: string;
+      baseUrl?: string;
+    };
+    const { provider, apiKey, baseUrl = "" } = body;
+    if (provider !== "openai" && provider !== "anthropic") {
+      return NextResponse.json({ error: "provider tidak dikenal" }, { status: 400 });
+    }
+    if (!apiKey?.trim()) {
+      return NextResponse.json({ error: "API key wajib diisi" }, { status: 400 });
+    }
+    const models =
+      provider === "openai"
+        ? await listOpenAI(baseUrl, apiKey.trim())
+        : await listAnthropic(baseUrl, apiKey.trim());
+    if (!models.length) {
+      return NextResponse.json({ error: "tidak ada model ditemukan" }, { status: 502 });
+    }
+    return NextResponse.json({ models, source: "live" });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "gagal memuat model" },
+      { status: 502 }
+    );
+  }
+}

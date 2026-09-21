@@ -1,0 +1,194 @@
+[
+  {
+    "id": "TC-001",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Login with valid credentials",
+    "preconditions": "User on login page",
+    "testData": "username: standard_user, password: secret_sauce",
+    "steps": [
+      "Enter username",
+      "Enter password",
+      "Click login button"
+    ],
+    "expected": "Redirects to inventory page",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-002",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with invalid password",
+    "preconditions": "User on login page",
+    "testData": "username: standard_user, password: wrong_password",
+    "steps": [
+      "Enter username",
+      "Enter wrong password",
+      "Click login button"
+    ],
+    "expected": "Error message displayed",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-003",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with empty credentials",
+    "preconditions": "User on login page",
+    "testData": "username: , password: ",
+    "steps": [
+      "Leave username empty",
+      "Leave password empty",
+      "Click login button"
+    ],
+    "expected": "Error message displayed",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-004",
+    "area": "Inventory",
+    "type": "Positive",
+    "title": "Add single item to cart",
+    "preconditions": "User logged in, on inventory page",
+    "testData": "item: Sauce Labs Backpack",
+    "steps": [
+      "Click add to cart for Sauce Labs Backpack"
+    ],
+    "expected": "Item added, cart badge shows 1",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-005",
+    "area": "Inventory",
+    "type": "Positive",
+    "title": "Add multiple items to cart",
+    "preconditions": "User logged in, on inventory page",
+    "testData": "items: Sauce Labs Backpack, Sauce Labs Bike Light",
+    "steps": [
+      "Click add to cart for Sauce Labs Backpack",
+      "Click add to cart for Sauce Labs Bike Light"
+    ],
+    "expected": "Cart badge shows 2",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-006",
+    "area": "Inventory",
+    "type": "Positive",
+    "title": "Remove item from cart",
+    "preconditions": "User logged in, item in cart",
+    "testData": "item: Sauce Labs Backpack",
+    "steps": [
+      "Click add to cart for Sauce Labs Backpack",
+      "Click remove for Sauce Labs Backpack"
+    ],
+    "expected": "Cart badge disappears",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-007",
+    "area": "Inventory",
+    "type": "Positive",
+    "title": "Sort products by name A-Z",
+    "preconditions": "User logged in, on inventory page",
+    "testData": "sort: Name (A to Z)",
+    "steps": [
+      "Select sort option Name (A to Z)"
+    ],
+    "expected": "Products sorted alphabetically",
+    "priority": "Low",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-008",
+    "area": "Inventory",
+    "type": "Positive",
+    "title": "Sort products by price low-high",
+    "preconditions": "User logged in, on inventory page",
+    "testData": "sort: Price (low to high)",
+    "steps": [
+      "Select sort option Price (low to high)"
+    ],
+    "expected": "Products sorted by price ascending",
+    "priority": "Low",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-009",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "View cart with items",
+    "preconditions": "User logged in, items in cart",
+    "testData": "items: Sauce Labs Backpack",
+    "steps": [
+      "Add item to cart",
+      "Click cart icon"
+    ],
+    "expected": "Cart page shows item",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-010",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Remove item from cart page",
+    "preconditions": "User logged in, item in cart",
+    "testData": "item: Sauce Labs Backpack",
+    "steps": [
+      "Add item to cart",
+      "Click cart icon",
+      "Click remove for item"
+    ],
+    "expected": "Item removed from cart",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-011",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Checkout with valid information",
+    "preconditions": "User logged in, item in cart, on checkout page",
+    "testData": "firstName: John, lastName: Doe, postalCode: 12345",
+    "steps": [
+      "Add item to cart",
+      "Click cart icon",
+      "Click checkout",
+      "Enter first name",
+      "Enter last name",
+      "Enter postal code",
+      "Click continue",
+      "Click finish"
+    ],
+    "expected": "Order complete page",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-012",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "Checkout with missing required field",
+    "preconditions": "User logged in, item in cart, on checkout page",
+    "testData": "firstName: , lastName: Doe, postalCode: 12345",
+    "steps": [
+      "Add item to cart",
+      "Click cart icon",
+      "Click checkout",
+      "Leave first name empty",
+      "Enter last name",
+      "Enter postal code",
+      "Click continue"
+    ],
+    "expected": "Error message displayed",
+    "priority": "Medium",
+    "severity": "Medium"
+  }
+]
