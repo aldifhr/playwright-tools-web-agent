@@ -20,8 +20,10 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
-  overflow: hidden;
 }
+
+/* Halaman chat mengunci scroll sendiri (h-screen + panel overflow-y-auto).
+   overflow body sengaja TIDAK hidden agar /tests, /settings, /memory bisa scroll. */
 
 /* scrollbar — monochrome */
 *::-webkit-scrollbar { width: 8px; height: 8px; }

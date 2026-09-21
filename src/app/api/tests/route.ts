@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listSpecs, readSpec, deleteSpec, deleteCases, readCases, runSpec, recordRun, loadLastRun } from "@/lib/specs";
+import { listSpecs, readSpec, deleteSpec, deleteCases, readCases, runSpec, recordRun, loadLastRun, loadRunLog } from "@/lib/specs";
 
 export const maxDuration = 300;
 
@@ -12,7 +12,7 @@ export async function GET() {
     for (const k of Object.keys(lastRun)) {
       if (k !== "__all__" && !names.has(k)) delete lastRun[k];
     }
-    return NextResponse.json({ tests, lastRun });
+    return NextResponse.json({ tests, lastRun, history: await loadRunLog() });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "gagal" },

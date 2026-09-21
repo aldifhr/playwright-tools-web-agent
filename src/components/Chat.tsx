@@ -9,6 +9,8 @@ import {
   Brain,
   Camera,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   FileText,
   Globe,
@@ -59,27 +61,31 @@ type Msg = {
 const SUGGESTIONS = [
   {
     icon: TrendingUp,
-    title: "Ringkasan trending",
-    desc: "Buka Hacker News & ringkas 5 teratas",
-    prompt: "Buka https://news.ycombinator.com dan ringkas 5 berita teratas",
+    title: "Exploratory testing",
+    desc: "Explore saucedemo & list area yang bisa di-test",
+    prompt:
+      "Buka https://www.saucedemo.com, login standard_user / secret_sauce, lalu eksplorasi dan list semua area/fitur yang bisa di-test",
   },
   {
     icon: Camera,
-    title: "Visual check",
-    desc: "Buka example.com + screenshot",
-    prompt: "Buka https://example.com lalu ambil screenshot",
+    title: "Bug repro + bukti",
+    desc: "Ulangi langkah + screenshot tiap tahap",
+    prompt:
+      "Buka https://www.saucedemo.com dan screenshot halaman login sebagai bukti awal",
   },
   {
     icon: Bitcoin,
-    title: "Cek harga crypto",
-    desc: "Harga BTC live dari CoinGecko",
-    prompt: "Buka https://www.coingecko.com/en/coins/bitcoin dan beritahu harga bitcoin saat ini",
+    title: "Smoke test cepat",
+    desc: "Login + tambah produk + cek badge cart",
+    prompt:
+      "Smoke test saucedemo: login standard_user / secret_sauce, tambah 1 produk ke cart, verifikasi badge cart = 1",
   },
   {
     icon: Newspaper,
-    title: "Headline hari ini",
-    desc: "Ringkasan berita Detik",
-    prompt: "Buka https://www.detik.com dan ringkas 5 headline utama",
+    title: "Cari locator",
+    desc: "Selector robust untuk automation",
+    prompt:
+      "Buka https://www.saucedemo.com dan berikan locator robust (data-test / getByRole) untuk form login",
   },
 ];
 
@@ -117,7 +123,10 @@ export default function Chat() {
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(true);
-  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{
+    list: { image: string; url: string }[];
+    i: number;
+  } | null>(null);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [navUrl, setNavUrl] = useState("");
   const [navLoading, setNavLoading] = useState(false);
@@ -233,7 +242,20 @@ export default function Chat() {
   const baseUrl = settings.baseUrls[provider] ?? "";
 
   const allShots = (active?.messages ?? []).flatMap((m) => m.screenshots ?? []).filter((s) => !!s.image);
-  const latestShot = allShots[allShots.length - 1];
+
+  // feed kronologis untuk LIVE BROWSER: semua shot AI + manual, TIDAK menimpa
+  const feedShots = (() => {
+    const feed = [...allShots];
+    if (manualShot && !feed.some((s) => s.image === manualShot)) {
+      feed.push({ url: browserUrl ?? "browser", image: manualShot });
+    }
+    return feed;
+  })();
+  const feedRef = useRef<HTMLDivElement>(null);
+  const feedLen = feedShots.length;
+  useEffect(() => {
+    feedRef.current?.scrollTo({ top: 99999, behavior: "smooth" });
+  }, [feedLen]);
 
   function commitMessages(id: string, next: Msg[], userText?: string) {
     setSessions((prev) => {
@@ -688,11 +710,11 @@ export default function Chat() {
                       <Sparkles size={28} className="text-black" />
                     </div>
                     <h1 className="text-gradient mt-5 text-3xl font-extrabold tracking-tight sm:text-4xl">
-                      Suruh AI browsing buat kamu
+                      QA Copilot kamu
                     </h1>
                     <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">
-                      Buka situs, ringkas isi, klik tombol, isi form, screenshot —
-                      semua otomatis via Playwright.
+                      Exploratory testing, smoke test, reproduksi bug + bukti screenshot,
+                      cari locator — semua otomatis via Playwright.
                     </p>
                     <div className="mt-6 grid gap-3 text-left sm:grid-cols-2">
                       {SUGGESTIONS.map((s) => (
@@ -710,7 +732,7 @@ export default function Chat() {
                       ))}
                     </div>
                     <div className="mt-5 flex flex-wrap justify-center gap-2 text-[11px] text-zinc-500">
-                      {["Navigate", "Click & Type", "Screenshot", "Extract text"].map((c) => (
+                      {["Navigate", "Snapshot", "Click & Type", "Screenshot", "Back", "Test plan + Run", "Remember"].map((c) => (
                         <span key={c} className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
                           {c}
                         </span>
@@ -804,14 +826,15 @@ export default function Chat() {
                             <p className="mt-1 text-[10px] text-zinc-600">
                               {m.model} • {m.time}
                             </p>
-                            {!!m.screenshots?.some((s) => !!s.image) && (
+                            {(() => {
+                              const shots = (m.screenshots ?? []).filter((s) => !!s.image);
+                              if (!shots.length) return null;
+                              return (
                               <div className="mt-2 grid gap-2">
-                                {m.screenshots
-                                  .filter((s) => !!s.image)
-                                  .map((s, j) => (
+                                {shots.map((s, j) => (
                                   <button
                                     key={j}
-                                    onClick={() => setLightbox(s.image)}
+                                    onClick={() => setLightbox({ list: shots, i: j })}
                                     className="group overflow-hidden rounded-2xl border border-white/10 text-left shadow-xl"
                                   >
                                     <div className="flex items-center gap-1.5 bg-zinc-950 px-3 py-2">
@@ -825,7 +848,8 @@ export default function Chat() {
                                   </button>
                                 ))}
                               </div>
-                            )}
+                              );
+                            })()}
                           </div>
                         </div>
                       )
@@ -880,7 +904,7 @@ export default function Chat() {
                       }
                     }}
                     rows={1}
-                    placeholder={`Tanya ${PROVIDERS[provider].label} + suruh browsing…  (mis. buka tokopedia cari iphone)`}
+                    placeholder={`Tanya ${PROVIDERS[provider].label}…  (mis. smoke test login saucedemo)`}
                     className="max-h-40 w-full resize-none bg-transparent px-4 pt-3 text-sm text-white outline-none placeholder:text-zinc-600"
                   />
                   <div className="flex items-center gap-2 px-2 pb-1">
@@ -961,17 +985,21 @@ export default function Chat() {
                     <Camera size={14} />
                   </button>
                 </form>
-                {(latestShot || manualShot) ? (
-                  <div className="animate-fade-up overflow-hidden rounded-2xl border border-white/10 shadow-2xl">
-                    <div className="flex items-center gap-1.5 bg-zinc-950 px-3 py-2.5 border-b border-white/10">
-                      <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
-                      <span className="h-2.5 w-2.5 rounded-full bg-zinc-500" />
-                      <span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />
-                      <span className="ml-2 truncate text-[11px] text-zinc-400">{(latestShot?.url ?? browserUrl) || "browser"}</span>
-                    </div>
-                    <button onClick={() => setLightbox(latestShot?.image ?? manualShot ?? "")} className="block w-full">
-                      <img src={latestShot?.image ?? manualShot ?? ""} alt="live" className="w-full grayscale" />
-                    </button>
+                {feedShots.length ? (
+                  <div ref={feedRef} className="flex max-h-[calc(100vh-220px)] flex-col gap-3 overflow-y-auto pr-0.5">
+                    {feedShots.map((s, k) => (
+                      <div key={`${k}-${s.url}`} className="animate-fade-up overflow-hidden rounded-2xl border border-white/10 shadow-xl">
+                        <div className="flex items-center gap-1.5 bg-zinc-950 px-3 py-2 border-b border-white/10">
+                          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-white text-[10px] font-bold text-black">
+                            {k + 1}
+                          </span>
+                          <span className="ml-1 truncate text-[11px] text-zinc-400">{s.url}</span>
+                        </div>
+                        <button onClick={() => setLightbox({ list: feedShots, i: k })} className="group block w-full">
+                          <img src={s.image} alt={s.url} className="w-full grayscale transition duration-300 group-hover:scale-[1.01]" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <div className="grid place-items-center rounded-2xl border border-dashed border-white/15 py-16 text-center">
@@ -982,44 +1010,50 @@ export default function Chat() {
                     </p>
                   </div>
                 )}
-                {allShots.length > 1 && (
-                  <>
-                    <p className="mt-4 mb-2 text-[11px] font-semibold tracking-widest text-zinc-500 uppercase">
-                      Riwayat ({allShots.length})
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {allShots.slice(-6).map((s, k) => (
-                        <button
-                          key={k}
-                          onClick={() => setLightbox(s.image)}
-                          className="overflow-hidden rounded-xl border border-white/10 opacity-80 transition hover:opacity-100"
-                        >
-                          <img src={s.image} alt={s.url} className="aspect-video w-full object-cover grayscale" />
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
               </div>
             </aside>
           )}
         </div>
       </div>
 
-      {/* lightbox */}
-      {lightbox && (
+      {/* lightbox + navigasi step */}
+      {lightbox && lightbox.list.length > 0 && (
         <div
           onClick={() => setLightbox(null)}
           className="fixed inset-0 z-50 grid place-items-center bg-black/90 p-4 backdrop-blur-sm"
         >
-          <img
-            src={lightbox}
-            alt="full"
-            className="animate-fade-up max-h-[90vh] max-w-6xl rounded-2xl border border-white/15 shadow-2xl grayscale"
-          />
-          <button className="absolute top-4 right-4 rounded-full bg-white p-2.5 text-black hover:bg-zinc-200">
-            <X size={18} />
-          </button>
+          <div className="w-full max-w-6xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="rounded-md bg-white px-2 py-0.5 text-[11px] font-bold text-black">
+                {lightbox.i + 1} / {lightbox.list.length}
+              </span>
+              <p className="truncate text-xs text-zinc-400">{lightbox.list[lightbox.i]?.url}</p>
+              <div className="ml-auto flex gap-1.5">
+                <button
+                  disabled={lightbox.i === 0}
+                  onClick={() => setLightbox({ ...lightbox, i: lightbox.i - 1 })}
+                  className="rounded-full bg-white/10 p-2 hover:bg-white/20 disabled:opacity-30"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  disabled={lightbox.i >= lightbox.list.length - 1}
+                  onClick={() => setLightbox({ ...lightbox, i: lightbox.i + 1 })}
+                  className="rounded-full bg-white/10 p-2 hover:bg-white/20 disabled:opacity-30"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button onClick={() => setLightbox(null)} className="rounded-full bg-white p-2 text-black hover:bg-zinc-200">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <img
+              src={lightbox.list[lightbox.i]?.image}
+              alt="full"
+              className="animate-fade-up max-h-[80vh] w-full rounded-2xl border border-white/15 object-contain shadow-2xl grayscale"
+            />
+          </div>
         </div>
       )}
     </div>

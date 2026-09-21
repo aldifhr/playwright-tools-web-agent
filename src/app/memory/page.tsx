@@ -77,7 +77,7 @@ export default function MemoryPage() {
     <div className="mesh-bg min-h-screen text-white">
       <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
         <Link
-          href="/"
+          href="/chat"
           className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10 hover:text-white"
         >
           <ArrowLeft size={15} /> Kembali ke chat

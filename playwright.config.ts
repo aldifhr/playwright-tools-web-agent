@@ -10,5 +10,9 @@ export default defineConfig({
     viewport: { width: 1280, height: 800 },
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
+    // artifacts hanya saat gagal — hemat disk
+    trace: "retain-on-failure",
+    video: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
 });

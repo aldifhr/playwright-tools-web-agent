@@ -1,5 +1,5 @@
 import { promises as fs } from "node:fs";
-import { join, basename } from "node:path";
+import { join, basename, relative } from "node:path";
 import { execFile } from "node:child_process";
 
 // Server-only: kelola file test Playwright di ./tests + menjalankannya.
@@ -14,12 +14,19 @@ export type SpecInfo = {
   updatedAt: number;
 };
 
+export type Attachment = {
+  name: string;
+  path: string; // relatif ke root proyek
+  contentType: string;
+};
+
 export type SpecResult = {
   title: string;
   file: string;
   status: "passed" | "failed" | "skipped" | "timedOut" | string;
   durationMs: number;
   error: string;
+  attachments: Attachment[];
 };
 
 export type RunSummary = {
@@ -167,6 +174,7 @@ type JsonSpec = {
       duration?: number;
       errors?: { message?: string }[];
       error?: { message?: string };
+      attachments?: { name?: string; path?: string; contentType?: string }[];
     }[];
   }[];
 };
@@ -186,6 +194,13 @@ function collect(suites: JsonSuite[] | undefined, out: SpecResult[]) {
             r?.error?.message ??
             ""
           ).slice(0, 800),
+          attachments: (r?.attachments ?? [])
+            .filter((a) => a.path)
+            .map((a) => ({
+              name: a.name ?? basename(a.path as string),
+              path: relative(process.cwd(), a.path as string),
+              contentType: a.contentType ?? "",
+            })),
         });
       }
     }
@@ -194,6 +209,25 @@ function collect(suites: JsonSuite[] | undefined, out: SpecResult[]) {
 }
 
 const LAST_RUN = join(DIR, ".last-run.json");
+const RUN_LOG = join(DIR, ".run-log.json");
+const RUN_LOG_MAX = 100;
+
+export type RunLogEntry = {
+  id: string;
+  at: number;
+  scope: string | null; // nama file, atau null = semua
+  passed: number;
+  failed: number;
+  skipped: number;
+  durationMs: number;
+  ok: boolean;
+  results: {
+    file: string;
+    title: string;
+    status: string;
+    durationMs: number;
+  }[];
+};
 
 export async function loadLastRun(): Promise<Record<string, RunSummary>> {
   try {
@@ -202,6 +236,19 @@ export async function loadLastRun(): Promise<Record<string, RunSummary>> {
     return map && typeof map === "object" ? map : {};
   } catch {
     return {};
+  }
+}
+
+export async function loadRunLog(): Promise<RunLogEntry[]> {
+  try {
+    const raw = await fs.readFile(RUN_LOG, "utf-8");
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(
+      (e): e is RunLogEntry => !!e && typeof (e as RunLogEntry).id === "string"
+    );
+  } catch {
+    return [];
   }
 }
 
@@ -234,6 +281,31 @@ export async function recordRun(file: string | null, summary: RunSummary) {
       map["__all__"] = summary;
     }
     await fs.writeFile(LAST_RUN, JSON.stringify(map), "utf-8");
+    // log riwayat (untuk halaman /runs + deteksi flaky)
+    try {
+      const log = await loadRunLog();
+      log.push({
+        id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        at: Date.now(),
+        scope: file,
+        passed: summary.passed,
+        failed: summary.failed,
+        skipped: summary.skipped,
+        durationMs: summary.durationMs,
+        ok: summary.ok,
+        results: summary.results.map((t) => ({
+          file: t.file,
+          title: t.title,
+          status: t.status,
+          durationMs: t.durationMs,
+        })),
+      });
+      await fs.writeFile(
+        RUN_LOG,
+        JSON.stringify(log.slice(-RUN_LOG_MAX)),
+        "utf-8"
+      );
+    } catch {}
   } catch {}
 }
 

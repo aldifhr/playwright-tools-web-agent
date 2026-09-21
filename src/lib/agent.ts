@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as browser from "./browser";
-import { saveSpec, runSpec, saveCases, recordRun } from "./specs";
+import { saveSpec, runSpec, saveCases, recordRun, listSpecs } from "./specs";
 import { saveFact, forgetFact } from "./memory";
 import { RUN_CANCELLED } from "./runs";
 
@@ -177,6 +177,12 @@ export function getBrowserTools(
           cases: z.infer<typeof TestCaseSchema>[];
         }) => saveCases(file, cases)
       ),
+    }),
+    test_list: tool({
+      description:
+        "Lihat daftar file spec (.spec.ts) yang sudah tersimpan di folder tests/.",
+      inputSchema: z.object({}),
+      execute: wrap("test_list", async () => listSpecs()),
     }),
   };
 }

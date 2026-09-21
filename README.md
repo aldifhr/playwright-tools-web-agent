@@ -2,7 +2,7 @@
 
 Web app chat AI yang mengendalikan **browser Chromium asli** (Playwright) langsung dari percakapan: buka URL, baca isi, klik, isi form, screenshot — plus bikin dan jalanin **test case Playwright** otomatis.
 
-Agent bernama **Faray**. UI hitam-putih, tiga halaman: **Chat** (`/`), **Tests** (`/tests`), **Settings** (`/settings`), **Memory** (`/memory`).
+Agent bernama **Faray**. UI hitam-putih, lima halaman: landing (`/`), **Chat** (`/chat`), **Tests** (`/tests`), **Settings** (`/settings`), **Memory** (`/memory`).
 
 ## Stack
 
@@ -29,7 +29,7 @@ Dibuka dari badge model di topbar. Semua tersimpan di localStorage browser.
 - **Model**: kolom ketik-bebas + saran dropdown yang **terisi otomatis dari API provider** (`GET /models` pakai Base URL + API key, debounce saat mengetik). Badge jumlah model live kalau berhasil, fallback ke daftar bawaan kalau gagal, tombol "Muat ulang" untuk refresh manual
 - **Tes Playwright**: tombol "Tes buka example.com" — buktikan browser jalan tanpa perlu API key
 
-## Chat (`/`)
+## Chat (`/chat`)
 
 - **Sidebar kiri** = daftar sesi chat (multi-session, judul otomatis, tersimpan di localStorage, hapus per sesi). Tombol Chat baru aman diklik kapan pun — request yang masih jalan otomatis dibatalkan
 - **Status live real-time** via SSE (`POST /api/chat/stream`): `Agent is typing…` → `Opening …` → `Thinking…` → `Reading page…` → `Taking screenshot…` → `Saving test…` / `Running tests…` / `Remembering…`, sesuai tool yang dieksekusi

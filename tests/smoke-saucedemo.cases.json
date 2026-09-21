@@ -1,0 +1,35 @@
+[
+  {
+    "id": "TC-001",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Login with valid standard_user credentials",
+    "preconditions": "User is on the login page",
+    "testData": "Username: standard_user, Password: secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com/",
+      "Enter username 'standard_user'",
+      "Enter password 'secret_sauce'",
+      "Click login button",
+      "Verify redirected to inventory page (URL contains '/inventory.html')"
+    ],
+    "expected": "Login successful, user lands on inventory page",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-002",
+    "area": "Add to Cart",
+    "type": "Positive",
+    "title": "Add product to cart and verify badge count",
+    "preconditions": "User is logged in and on inventory page",
+    "testData": "Product: Sauce Labs Backpack",
+    "steps": [
+      "Click 'Add to cart' button for Sauce Labs Backpack",
+      "Verify cart badge shows count of 1"
+    ],
+    "expected": "Cart badge displays '1'",
+    "priority": "High",
+    "severity": "High"
+  }
+]

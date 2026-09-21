@@ -42,6 +42,8 @@ export function statusLabel(toolName: string, input: unknown): string {
       return "Forgetting…";
     case "test_plan":
       return "Planning tests…";
+    case "test_list":
+      return "Listing tests…";
     default:
       return "Working…";
   }
