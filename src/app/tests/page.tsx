@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -10,6 +10,7 @@ import {
   Loader2,
   Play,
   Sparkles,
+  Square,
   Table as TableIcon,
   Trash2,
 } from "lucide-react";
@@ -60,6 +61,8 @@ export default function TestsPage() {
   const [generating, setGenerating] = useState(false);
   const [genStatus, setGenStatus] = useState("");
   const [genSummary, setGenSummary] = useState("");
+  const [genRunId, setGenRunId] = useState<string | null>(null);
+  const genCtrl = useRef<AbortController | null>(null);
   const [caseRows, setCaseRows] = useState<Record<string, TestCase[]>>({});
   const [casesOpen, setCasesOpen] = useState<Record<string, boolean>>({});
 
@@ -142,6 +145,24 @@ export default function TestsPage() {
     }
   }
 
+  async function stopGenerate() {
+    const id = genRunId;
+    setGenRunId(null);
+    try {
+      genCtrl.current?.abort();
+    } catch {}
+    genCtrl.current = null;
+    if (id) {
+      try {
+        await fetch("/api/chat/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ runId: id }),
+        });
+      } catch {}
+    }
+  }
+
   async function generate() {
     const url = genUrl.trim();
     const scenario = genScenario.trim();
@@ -156,6 +177,9 @@ export default function TestsPage() {
     setGenSummary("");
     setGenStatus("Agent is typing…");
     setError("");
+    const ctrl = new AbortController();
+    genCtrl.current = ctrl;
+    let aborted = false;
     try {
       const prompt =
         `Buatkan test case Playwright untuk ${url}. ` +
@@ -166,6 +190,7 @@ export default function TestsPage() {
       const res = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: ctrl.signal,
         body: JSON.stringify({
           messages: [{ role: "user", content: prompt }],
           provider: s.provider,
@@ -192,7 +217,11 @@ export default function TestsPage() {
           const ev = /event: (\w+)/.exec(frame)?.[1];
           const dm = /data: ([\s\S]*)/.exec(frame)?.[1];
           if (!ev || dm === undefined) continue;
-          if (ev === "status") {
+          if (ev === "init") {
+            try {
+              setGenRunId((JSON.parse(dm) as { runId?: string }).runId ?? null);
+            } catch {}
+          } else if (ev === "status") {
             try {
               const d = JSON.parse(dm) as { label?: string };
               if (d.label) setGenStatus(d.label);
@@ -206,6 +235,11 @@ export default function TestsPage() {
               );
             }
             refresh();
+          } else if (ev === "aborted") {
+            aborted = true;
+            setGenStatus("Dihentikan");
+            break;
+          } else if (ev === "error") {
           } else if (ev === "error" || ev === "aborted") {
             const d = JSON.parse(dm) as { error?: string };
             throw new Error(d.error || "Generate dibatalkan");
@@ -213,8 +247,12 @@ export default function TestsPage() {
         }
       }
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      if (aborted) return;
       setError(e instanceof Error ? e.message : "Generate gagal");
     } finally {
+      if (genCtrl.current === ctrl) genCtrl.current = null;
+      setGenRunId(null);
       setGenerating(false);
     }
   }
@@ -330,18 +368,23 @@ export default function TestsPage() {
                 className="mt-2 w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-white/40"
               />
               <div className="mt-2 flex items-center gap-2">
-                <button
-                  onClick={generate}
-                  disabled={generating || !genUrl.trim() || !genScenario.trim()}
-                  className="flex items-center gap-1.5 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black hover:bg-zinc-200 disabled:opacity-30"
-                >
-                  {generating ? (
-                    <Loader2 size={15} className="animate-spin" />
-                  ) : (
-                    <Sparkles size={15} />
-                  )}
-                  {generating ? "Generating…" : "Generate + Run"}
-                </button>
+                {generating ? (
+                  <button
+                    onClick={stopGenerate}
+                    title="Hentikan generator"
+                    className="flex items-center gap-1.5 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black hover:bg-zinc-200"
+                  >
+                    <Square size={14} fill="currentColor" /> Stop
+                  </button>
+                ) : (
+                  <button
+                    onClick={generate}
+                    disabled={!genUrl.trim() || !genScenario.trim()}
+                    className="flex items-center gap-1.5 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black hover:bg-zinc-200 disabled:opacity-30"
+                  >
+                    <Sparkles size={15} /> Generate + Run
+                  </button>
+                )}
                 {generating && (
                   <span className="flex items-center gap-2 text-xs text-zinc-400">
                     <span className="flex gap-1">

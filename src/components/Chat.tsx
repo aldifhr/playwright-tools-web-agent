@@ -606,19 +606,7 @@ export default function Chat() {
           </div>
 
           {/* footer sidebar */}
-          <div className="mt-auto space-y-2 pt-4">
-            <div className="glass flex items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-zinc-400">
-              <span
-                className={`h-1.5 w-1.5 shrink-0 rounded-full ${browserUrl ? "bg-white animate-pulse" : "bg-zinc-700"}`}
-              />
-              <span className="truncate">
-                {browserUrl ? browserUrl : "Browser idle"}
-              </span>
-            </div>
-            <p className="text-center text-[11px] text-zinc-600">
-              ⏎ kirim • ⇧⏎ baris baru
-            </p>
-          </div>
+        
 
         </div>
       </aside>

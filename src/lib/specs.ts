@@ -255,7 +255,12 @@ export function runSpec(file?: string): Promise<RunSummary> {
       return;
     }
     const bin = join(process.cwd(), "node_modules", ".bin", "playwright");
-    const args = ["test", ...(safe ? [safe] : []), "--reporter=json"];
+    // filter CLI Playwright itu regex substring — tanpa anchor,
+    // "saucedemo.spec.ts" ikut menjalankan "login-saucedemo.spec.ts".
+    // Escape + anchor ke path separator agar exact 1 file.
+    const args = safe
+      ? ["test", `/tests/${safe.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "--reporter=json"]
+      : ["test", "--reporter=json"];
     const started = Date.now();
     execFile(
       bin,
