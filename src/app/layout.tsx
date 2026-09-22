@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Playwright Chat AI — AI Browser Agent",
-  description: "Multi-provider AI chat with a Playwright browser agent",
+  title: "FarayAgent — Playwright QA Browser Agent",
+  description: "QA-focused AI chat that controls a real Chromium browser: explore sites, create test plans, run Playwright specs, and report grounded results",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
