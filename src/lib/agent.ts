@@ -49,13 +49,23 @@ export function getBrowserTools(
     return async (input: T) => {
       if (shouldAbort?.()) throw new Error(RUN_CANCELLED);
       if (APPROVAL_TOOLS.has(toolName)) {
-        // No approval channel (sub-agent, other callers) = allow, as before.
-        const approved = awaitApproval ? await awaitApproval(toolName, input) : true;
-        if (shouldAbort?.()) throw new Error(RUN_CANCELLED);
-        if (!approved) {
-          throw new Error(
-            `User denied ${toolName}. Do not retry it; inform the user the action was not performed.`
-          );
+        if (!awaitApproval) {
+          // No approval channel (e.g. sub-agent): deny by default.
+          // Only provably side-effect-free commands pass without a human.
+          const cmd = (input as { command?: unknown } | null)?.command;
+          if (typeof cmd !== "string" || !browser.isReadOnlyCommand(cmd)) {
+            throw new Error(
+              `User denied ${toolName}. Do not retry it; inform the user the action was not performed.`
+            );
+          }
+        } else {
+          const approved = await awaitApproval(toolName, input);
+          if (shouldAbort?.()) throw new Error(RUN_CANCELLED);
+          if (!approved) {
+            throw new Error(
+              `User denied ${toolName}. Do not retry it; inform the user the action was not performed.`
+            );
+          }
         }
       }
       try {

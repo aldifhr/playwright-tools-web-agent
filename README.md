@@ -51,14 +51,13 @@ Set `BRIGHTDATA_BROWSER_AUTH` (`zone username:password`) instead to use the Brig
 ## Routes
 
 - `/` — landing page
-- `/chat` — QA chat with a project switcher
-- `/project/{projectId}` — chat locked to one project (Claude-style project URL)
-- `/projects` — create, rename, and manage projects: scoped chats, custom instructions, knowledge files
+- `/chat` — QA chat with multi-session history
+- `/chat/{chatId}` — deep link to a specific chat
 - `/tests` — saved Playwright specs, run results, cases, and history
 - `/settings` — provider, model, API key, base URL, and Chromium check
 - `/memory` — manage durable facts stored in `MEMORY.md`
 - `/logs` — inspect tool calls, inputs, outputs, durations, and errors
-- `/prompt` — inspect the composed system prompt per section, with project-context preview
+- `/prompt` — inspect the composed system prompt per section
 - `/skills` — search, install, and remove agent skills
 
 ## Chat Workflow
@@ -75,6 +74,15 @@ The chat supports:
 - Screenshots with a lightbox viewer
 
 For a QA test plan request, the agent explores only as much as needed, creates a Markdown test-plan document, runs a quality gate, and reports the saved artifact. Detailed test cases are stored separately as `.cases.json` when requested.
+
+## Security posture (local-first)
+
+FarayAgent is designed for a **single-user trusted local environment**, not public multi-user deployment:
+
+- Browser navigation blocks loopback/private/link-local/cloud-metadata targets (pre- and post-redirect); custom LLM `baseUrl` values are validated the same way (loopback allowed for local gateways like Ollama).
+- `browser_bash` runs without a shell (allowlisted commands only, no pipes/redirects) and pauses for explicit user approval; without an approval channel it is denied except for read-only commands (`ls`, `cat`, `grep`, …).
+- Uploads (Excel/PDF/Word) are parsed **client-side only** — the server never touches binary uploads.
+- Secrets are rejected from memory and redacted from tool logs; chat request bodies are Zod-validated with size caps.
 
 ## Skills
 
@@ -116,7 +124,7 @@ Review every external skill and its security assessment before enabling it. A Ve
 - `GET|POST /api/browser` — manual browser control
 - `GET|POST /api/memory` — list, save, and forget memory facts
 - `GET|POST /api/logs` — read and clear tool logs
-- `GET|POST /api/skills` — search, install, and remove skills
+- `GET|POST /api/skills` — search, install, enable/disable, and remove skills
 - `GET|POST /api/tests` — list, read, delete, and run Playwright specs
 
 ## Project Structure
@@ -125,7 +133,7 @@ Review every external skill and its security assessment before enabling it. A Ve
 SOUL.md, MEMORY.md             Agent personality and durable memory
 src/app/page.tsx               Landing page
 src/app/chat/page.tsx          Chat route
-src/app/projects/page.tsx      Scoped chat projects
+src/app/chat/[chatId]/page.tsx   Deep link to a chat
 src/app/tests/page.tsx         Spec list, run results, cases, history
 src/app/settings/page.tsx      Provider and browser settings
 src/app/memory/page.tsx        Memory management

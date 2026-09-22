@@ -11,8 +11,6 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.58",
     "@ai-sdk/openai": "^4.0.71",
-    "@assistant-ui/ai-sdk": "^0.0.7",
-    "@assistant-ui/react": "^0.15.21",
     "@assistant-ui/react-markdown": "^0.14.16",
     "@radix-ui/react-label": "^2.1.15",
     "@radix-ui/react-select": "^2.3.7",
@@ -23,7 +21,6 @@
     "clsx": "^2.1.1",
     "cn": "^0.3.2",
     "date-fns": "^4.4.0",
-    "eve": "^0.63.0",
     "framer-motion": "^13.4.0",
     "lucide-react": "^1.47.0",
     "mammoth": "^1.12.3",

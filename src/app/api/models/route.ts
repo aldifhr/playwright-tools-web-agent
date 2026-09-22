@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { DEFAULT_BASE_URLS, ProviderId } from "@/lib/providers";
+import { assertPublicTarget } from "@/lib/ssrf";
 
 export const maxDuration = 30;
 
@@ -62,6 +63,22 @@ export async function POST(req: Request) {
     }
     if (!apiKey?.trim()) {
       return NextResponse.json({ error: "API key is required" }, { status: 400 });
+    }
+    // The server forwards the user's key to this URL, so validate the target:
+    // must be http(s), resolvable, and never a cloud metadata endpoint.
+    // Private/loopback hosts stay allowed (local Ollama-style gateways).
+    if (baseUrl.trim()) {
+      if (baseUrl.trim().length > 500) {
+        return NextResponse.json({ error: "base URL is too long" }, { status: 400 });
+      }
+      try {
+        await assertPublicTarget(baseUrl.trim(), { allowLocal: true });
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "invalid base URL" },
+          { status: 400 }
+        );
+      }
     }
     const models =
       provider === "openai"

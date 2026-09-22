@@ -1,8 +1,8 @@
 import { chromium, Browser, BrowserContext, Page } from "playwright";
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
-import { lookup } from "node:dns/promises";
 import { isAbsolute, relative, resolve } from "node:path";
+import { assertPublicTarget } from "./ssrf";
 
 let browser: Browser | null = null;
 let context: BrowserContext | null = null;
@@ -34,55 +34,28 @@ function inside(parent: string, target: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-function isPrivateIPv4(ip: string): boolean {
-  const parts = ip.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
-  const [a, b] = parts;
-  return (
-    a === 10 ||
-    a === 127 ||
-    a === 0 ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 169 && b === 254)
-  );
-}
+const READONLY_COMMANDS = new Set([
+  "grep",
+  "ls",
+  "cat",
+  "head",
+  "tail",
+  "wc",
+  "date",
+  "echo",
+]);
 
-function isPrivateIPv6(ip: string): boolean {
-  const low = ip.toLowerCase();
-  return (
-    low === "::1" ||
-    low === "::" ||
-    low.startsWith("fe80:") ||
-    low.startsWith("fec0:") ||
-    low.startsWith("fc") ||
-    low.startsWith("fd")
-  );
-}
-
-// SSRF guard: block loopback / private / link-local targets before navigating.
-async function assertPublicTarget(rawUrl: string): Promise<URL> {
-  let target = rawUrl.trim();
-  if (!/^https?:\/\//i.test(target)) target = "https://" + target;
-  const parsed = new URL(target);
-  const host = parsed.hostname.toLowerCase();
-  if (host === "localhost" || host.endsWith(".localhost") || host === "[::1]") {
-    throw new Error("navigation to loopback addresses is not allowed");
-  }
-  let addresses: { address: string; family: number }[];
+// True when a command is side-effect free (no shell operators, no execution).
+// Used by the approval gate: read-only commands may run without a human,
+// everything else requires one — never the other way around.
+export function isReadOnlyCommand(raw: string): boolean {
   try {
-    addresses = await lookup(host, { all: true });
+    const parts = parseCommand(String(raw ?? ""));
+    const executable = parts.shift()?.toLowerCase() ?? "";
+    return READONLY_COMMANDS.has(executable);
   } catch {
-    throw new Error(`cannot resolve host '${host}'`);
+    return false;
   }
-  if (
-    addresses.some(({ address, family }) =>
-      family === 4 ? isPrivateIPv4(address) : isPrivateIPv6(address)
-    )
-  ) {
-    throw new Error(`navigation to private/internal addresses is not allowed (${host})`);
-  }
-  return parsed;
 }
 
 function parseCommand(raw: string): string[] {
@@ -194,6 +167,16 @@ export async function navigate(url: string) {
   const parsed = await assertPublicTarget(url);
   await p.goto(parsed.toString(), { waitUntil: "domcontentloaded", timeout: 30000 });
   lastUrl = p.url();
+  // Revalidate after redirects: the final URL is re-resolved, so a redirect
+  // chain cannot smuggle the browser onto a private/internal target.
+  if (/^https?:\/\//i.test(lastUrl)) {
+    try {
+      await assertPublicTarget(lastUrl);
+    } catch (e) {
+      await p.goto("about:blank").catch(() => null);
+      throw e;
+    }
+  }
   const title = await p.title().catch(() => "");
   return { url: lastUrl, title };
 }

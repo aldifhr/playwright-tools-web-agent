@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { generateText, stepCountIs, type ModelMessage } from "ai";
-import { getModel, PROVIDERS, ProviderId } from "@/lib/providers";
+import { getModel, PROVIDERS } from "@/lib/providers";
 import {
   getBrowserTools,
   statusLabel,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/runs";
 import { createApproval, rejectRunApprovals } from "@/lib/approvals";
 import { loadInstalledSkillsSync } from "@/lib/skills";
+import { assertPublicTarget } from "@/lib/ssrf";
 
 export const maxDuration = 300;
 const MAX_STEPS = 30;
@@ -38,21 +40,30 @@ function thinkingFor(toolName?: string, input?: unknown) {  const values = typeo
   }
 }
 
+const StreamBodySchema = z.object({
+  messages: z
+    .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(50_000) }))
+    .min(1)
+    .max(100),
+  provider: z.enum(["openai", "anthropic"]).optional().default("openai"),
+  model: z.string().max(120).optional(),
+  apiKey: z.string().max(500).optional().default(""),
+  baseUrl: z.string().max(500).optional().default(""),
+});
+
 // POST /api/chat/stream — SSE. Event:
 //   status { label }   → tahap kerja agent (real-time, dari tool yang dieksekusi)
 //   done   { text, toolCalls, screenshots, usage, model, provider }
 //   error  { error }
 export async function POST(req: NextRequest) {
-  let body: {
-    messages?: { role: "user" | "assistant"; content: string }[];
-    provider?: ProviderId;
-    model?: string;
-    apiKey?: string;
-    baseUrl?: string;
-  };
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
+    return Response.json({ error: "invalid request body" }, { status: 400 });
+  }
+  const parsed = StreamBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
     return Response.json({ error: "invalid request body" }, { status: 400 });
   }
 
@@ -62,13 +73,20 @@ export async function POST(req: NextRequest) {
     model,
     apiKey = "",
     baseUrl = "",
-  } = body;
-
-  if (!messages?.length) {
-    return Response.json({ error: "messages cannot be empty" }, { status: 400 });
-  }
-  if (!PROVIDERS[provider]) {
-    return Response.json({ error: "unknown provider" }, { status: 400 });
+  } = parsed.data;
+  // The server forwards the user's key to this URL — same validation as /api/models.
+  if (baseUrl.trim()) {
+    if (baseUrl.trim().length > 500) {
+      return Response.json({ error: "base URL is too long" }, { status: 400 });
+    }
+    try {
+      await assertPublicTarget(baseUrl.trim(), { allowLocal: true });
+    } catch (e) {
+      return Response.json(
+        { error: e instanceof Error ? e.message : "invalid base URL" },
+        { status: 400 }
+      );
+    }
   }
 
   const chosenModel = model || PROVIDERS[provider].models[0];
@@ -118,6 +136,7 @@ export async function POST(req: NextRequest) {
             system:
                "You are a QA sub-agent. Work only on the assigned subtask. " +
                "Explore briefly, use at most 8 tool steps, then return a concise factual result to the main agent. " +
+               "You cannot approve shell commands: stick to read-only commands (ls, cat, grep) and never run node/npm/npx. " +
                "Do not delegate again.",
             messages: [{ role: "user", content: task }],
             tools: subTools,

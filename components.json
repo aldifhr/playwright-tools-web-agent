@@ -17,9 +17,5 @@
     "lib": "@/lib",
     "hooks": "@/hooks"
   },
-  "iconLibrary": "lucide",
-  "registries": {
-    "@agentcn": "https://agentcn.vercel.app/r/{name}.json",
-    "@assistant-ui": "https://r.assistant-ui.com/{name}.json"
-  }
+  "iconLibrary": "lucide"
 }
