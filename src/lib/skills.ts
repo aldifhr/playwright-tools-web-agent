@@ -118,6 +118,7 @@ export async function installSkill(id: string) {
   await fs.mkdir(directory, { recursive: true });
   await fs.writeFile(join(directory, "SKILL.md"), skillFile.contents, "utf8");
   await fs.writeFile(join(directory, "source.json"), JSON.stringify({ id, installedAt: Date.now() }, null, 2), "utf8");
+  skillsCache = null;
   return { id, directory: ".skills/" + id.split("/").join("--"), size: skillFile.contents.length };
 }
 
@@ -159,6 +160,7 @@ export async function setSkillDisabled(id: string, disabled: boolean) {
     JSON.stringify({ ...source, id, disabled }, null, 2),
     "utf8"
   );
+  skillsCache = null;
   return { id, disabled };
 }
 
@@ -175,7 +177,19 @@ export async function loadInstalledSkills() {
   return loaded;
 }
 
+const SKILLS_CACHE_TTL_MS = 30_000;
+let skillsCache: { at: number; value: { id: string; content: string }[] } | null = null;
+
 export function loadInstalledSkillsSync() {
+  if (skillsCache && Date.now() - skillsCache.at < SKILLS_CACHE_TTL_MS) {
+    return skillsCache.value;
+  }
+  const value = loadInstalledSkillsSyncUncached();
+  skillsCache = { at: Date.now(), value };
+  return value;
+}
+
+function loadInstalledSkillsSyncUncached() {
   try {
     const roots = [
       { directory: SKILLS_DIR, allow: () => true, checkDisabled: true },
@@ -212,5 +226,6 @@ export function loadInstalledSkillsSync() {
 
 export async function removeSkill(id: string) {
   await fs.rm(skillPath(id), { recursive: true, force: true });
+  skillsCache = null;
   return { removed: id };
 }

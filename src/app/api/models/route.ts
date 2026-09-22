@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { DEFAULT_BASE_URLS, ProviderId } from "@/lib/providers";
+import { z } from "zod";
+import { DEFAULT_BASE_URLS } from "@/lib/providers";
 import { assertPublicTarget } from "@/lib/ssrf";
+import { requireAuth } from "@/lib/auth";
+import { clientKey, rateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 30;
 
@@ -51,19 +54,20 @@ async function listAnthropic(baseUrl: string, apiKey: string): Promise<string[]>
 }
 
 export async function POST(req: Request) {
+  const auth = requireAuth(req);
+  if (auth) return auth;
+  const limited = rateLimit(`models:${clientKey(req)}`, 30, 60_000);
+  if (limited) return limited;
+  const parsed = z.object({
+    provider: z.enum(["openai", "anthropic"]),
+    apiKey: z.string().min(1).max(500),
+    baseUrl: z.string().max(500).optional().default(""),
+  }).safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "provider and API key are required" }, { status: 400 });
+  }
   try {
-    const body = (await req.json().catch(() => ({}))) as {
-      provider?: ProviderId;
-      apiKey?: string;
-      baseUrl?: string;
-    };
-    const { provider, apiKey, baseUrl = "" } = body;
-    if (provider !== "openai" && provider !== "anthropic") {
-      return NextResponse.json({ error: "unknown provider" }, { status: 400 });
-    }
-    if (!apiKey?.trim()) {
-      return NextResponse.json({ error: "API key is required" }, { status: 400 });
-    }
+    const { provider, apiKey, baseUrl = "" } = parsed.data;
     // The server forwards the user's key to this URL, so validate the target:
     // must be http(s), resolvable, and never a cloud metadata endpoint.
     // Private/loopback hosts stay allowed (local Ollama-style gateways).

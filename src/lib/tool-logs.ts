@@ -21,6 +21,35 @@ const SENSITIVE = /password|token|secret|api[-_]?key|authorization|cookie/i;
 let cache: ToolLog[] | null = null;
 let loadPromise: Promise<ToolLog[]> | null = null;
 let writeQueue = Promise.resolve();
+// Batched flush: tool calls only mutate memory; disk writes happen at most
+// once per second (or immediately when the buffer grows large).
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+const FLUSH_INTERVAL_MS = 1000;
+const FLUSH_NOW_AT = 100;
+
+function scheduleFlush() {
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    void flushToolLogs();
+  }, FLUSH_INTERVAL_MS);
+  const timer = flushTimer;
+  // Don't keep the server alive just for pending logs.
+  if (typeof timer === "object" && "unref" in timer && typeof timer.unref === "function") {
+    timer.unref();
+  }
+}
+
+async function flushToolLogs() {
+  if (!cache) return;
+  const snapshot = JSON.stringify(cache);
+  // Serialize writes so simultaneous tool calls cannot overwrite each other.
+  writeQueue = writeQueue.then(async () => {
+    await fs.mkdir(DIR, { recursive: true });
+    await fs.writeFile(FILE, snapshot, "utf8");
+  });
+  await writeQueue;
+}
 
 function redact(value: unknown, depth = 0): unknown {
   if (depth > 4) return "[truncated]";
@@ -52,16 +81,27 @@ export async function recordToolLog(entry: Omit<ToolLog, "id" | "at">) {
     while (cache.length > 1 && JSON.stringify(cache).length > MAX_FILE_BYTES) {
       cache.shift();
     }
-    const snapshot = JSON.stringify(cache);
-    // Serialize writes so simultaneous tool calls cannot overwrite each other.
-    writeQueue = writeQueue.then(async () => {
-      await fs.mkdir(DIR, { recursive: true });
-      await fs.writeFile(FILE, snapshot, "utf8");
-    });
-    await writeQueue;
+    if (cache.length >= FLUSH_NOW_AT) {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      await flushToolLogs();
+    } else {
+      scheduleFlush();
+    }
   } catch (error) {
     console.error("tool log error:", error);
   }
+}
+
+// Flush buffered entries (runs, shutdown paths, tests).
+export async function flushLogs() {
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  await flushToolLogs();
 }
 
 export async function loadToolLogs(): Promise<ToolLog[]> {

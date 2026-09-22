@@ -83,6 +83,9 @@ FarayAgent is designed for a **single-user trusted local environment**, not publ
 - `browser_bash` runs without a shell (allowlisted commands only, no pipes/redirects) and pauses for explicit user approval; without an approval channel it is denied except for read-only commands (`ls`, `cat`, `grep`, …).
 - Uploads (Excel/PDF/Word) are parsed **client-side only** — the server never touches binary uploads.
 - Secrets are rejected from memory and redacted from tool logs; chat request bodies are Zod-validated with size caps.
+- Each agent run gets an isolated `BrowserContext` (closed on run end); manual `/api/browser` use shares one page.
+- Rate limits guard expensive endpoints (max 3 concurrent chat runs); set `APP_TOKEN` to require bearer auth on all `/api/*` routes (open by default for local use).
+- `npm run build`, `tsc`, `lint`, and Playwright tests run in CI (`.github/workflows/ci.yml`).
 
 ## Skills
 

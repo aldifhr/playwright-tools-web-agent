@@ -4,6 +4,8 @@ import { saveFact } from "../src/lib/memory";
 import { assertPublicTarget } from "../src/lib/ssrf";
 import { isReadOnlyCommand } from "../src/lib/browser";
 import { getBrowserTools } from "../src/lib/agent";
+import { rateLimit, tryEnter, leave } from "../src/lib/rate-limit";
+import { requireAuth } from "../src/lib/auth";
 
 // Pure unit tests for agent lib helpers (no browser, no file writes:
 // every assertion below either validates input or expects a throw
@@ -63,4 +65,38 @@ test("bash without approval channel denies executors, allows readers", async () 
   await expect(bash.execute({ command: "npx something-evil" })).rejects.toThrow(/denied/i);
   const out = (await bash.execute({ command: "echo hi" })) as { stdout: string };
   expect(out.stdout.trim()).toBe("hi");
+});
+
+test("rate limiter allows then rejects over the limit", () => {
+  const key = `test-${Date.now()}-${Math.random()}`;
+  expect(rateLimit(key, 2, 60_000)).toBeNull();
+  expect(rateLimit(key, 2, 60_000)).toBeNull();
+  const rejected = rateLimit(key, 2, 60_000);
+  expect(rejected).not.toBeNull();
+  expect(rejected?.status).toBe(429);
+});
+
+test("concurrent slots guard expensive endpoints", () => {
+  const slot = `test-slot-${Date.now()}`;
+  expect(tryEnter(slot, 1)).toBe(true);
+  expect(tryEnter(slot, 1)).toBe(false);
+  leave(slot);
+  expect(tryEnter(slot, 1)).toBe(true);
+  leave(slot);
+});
+
+test("auth is open without token, enforced with token", () => {
+  expect(requireAuth(new Request("http://x/"))).toBeNull();
+  process.env.APP_TOKEN = "secret-token";
+  try {
+    expect(requireAuth(new Request("http://x/"))?.status).toBe(401);
+    expect(
+      requireAuth(new Request("http://x/", { headers: { Authorization: "Bearer secret-token" } }))
+    ).toBeNull();
+    expect(
+      requireAuth(new Request("http://x/", { headers: { Authorization: "Bearer wrong" } }))?.status
+    ).toBe(401);
+  } finally {
+    delete process.env.APP_TOKEN;
+  }
 });

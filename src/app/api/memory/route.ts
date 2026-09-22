@@ -1,7 +1,22 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { listFacts, saveFact, forgetFact } from "@/lib/memory";
+import { requireAuth } from "@/lib/auth";
+import { clientKey, rateLimit } from "@/lib/rate-limit";
 
-export async function GET() {
+const MemoryBodySchema = z.object({
+  action: z.enum(["save", "forget"]).optional(),
+  fact: z.string().max(500).optional(),
+  query: z.string().max(200).optional(),
+});
+
+function guard(req: Request) {
+  return requireAuth(req) ?? rateLimit(`memory:${clientKey(req)}`, 60, 60_000);
+}
+
+export async function GET(req: Request) {
+  const blocked = guard(req);
+  if (blocked) return blocked;
   try {
     return NextResponse.json({ facts: listFacts() });
   } catch (e) {
@@ -13,11 +28,13 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as {
-    action?: string;
-    fact?: string;
-    query?: string;
-  };
+  const blocked = guard(req);
+  if (blocked) return blocked;
+  const parsed = MemoryBodySchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "invalid request body" }, { status: 400 });
+  }
+  const body = parsed.data;
   try {
     if (body.action === "save") {
       if (!body.fact) {

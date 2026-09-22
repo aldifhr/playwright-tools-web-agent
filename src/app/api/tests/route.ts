@@ -1,9 +1,23 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { listSpecs, readSpec, deleteSpec, deleteCases, readCases, runSpec, recordRun, loadLastRun, loadRunLog } from "@/lib/specs";
+import { requireAuth } from "@/lib/auth";
+import { clientKey, rateLimit } from "@/lib/rate-limit";
+
+const TestsBodySchema = z.object({
+  action: z.enum(["get", "delete", "cases", "run"]).optional(),
+  file: z.string().max(200).optional(),
+});
 
 export const maxDuration = 300;
 
-export async function GET() {
+function guard(req: Request) {
+  return requireAuth(req) ?? rateLimit(`tests:${clientKey(req)}`, 60, 60_000);
+}
+
+export async function GET(req: Request) {
+  const blocked = guard(req);
+  if (blocked) return blocked;
   try {
     const tests = await listSpecs();
     const lastRun = await loadLastRun();
@@ -22,10 +36,13 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as {
-    action?: string;
-    file?: string;
-  };
+  const blocked = guard(req);
+  if (blocked) return blocked;
+  const parsed = TestsBodySchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "invalid request body" }, { status: 400 });
+  }
+  const body = parsed.data;
   try {
     switch (body.action) {
       case "get": {

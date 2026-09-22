@@ -1,7 +1,16 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { installSkill, listInstalledSkills, loadInstalledSkillsSync, removeSkill, searchSkills, setSkillDisabled } from "@/lib/skills";
+import { requireAuth } from "@/lib/auth";
+import { clientKey, rateLimit } from "@/lib/rate-limit";
+
+function guard(req: Request) {
+  return requireAuth(req) ?? rateLimit(`skills:${clientKey(req)}`, 60, 60_000);
+}
 
 export async function GET(request: Request) {
+  const blocked = guard(request);
+  if (blocked) return blocked;
   try {
     const query = new URL(request.url).searchParams.get("q") ?? "";
     return NextResponse.json({
@@ -15,9 +24,17 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const blocked = guard(request);
+  if (blocked) return blocked;
+  const parsed = z.object({
+    action: z.enum(["remove", "disable", "enable"]).optional(),
+    id: z.string().min(1).max(200),
+  }).safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "skill id is required" }, { status: 400 });
+  }
   try {
-    const body = await request.json() as { action?: string; id?: string };
-    if (!body.id) return NextResponse.json({ error: "skill id is required" }, { status: 400 });
+    const body = parsed.data;
     if (body.action === "remove") return NextResponse.json(await removeSkill(body.id));
     if (body.action === "disable") return NextResponse.json(await setSkillDisabled(body.id, true));
     if (body.action === "enable") return NextResponse.json(await setSkillDisabled(body.id, false));

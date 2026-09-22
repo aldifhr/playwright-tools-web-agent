@@ -18,6 +18,9 @@ import {
 import { createApproval, rejectRunApprovals } from "@/lib/approvals";
 import { loadInstalledSkillsSync } from "@/lib/skills";
 import { assertPublicTarget } from "@/lib/ssrf";
+import { flushLogs } from "@/lib/tool-logs";
+import { requireAuth } from "@/lib/auth";
+import { clientKey, leave, rateLimit, tryEnter } from "@/lib/rate-limit";
 
 export const maxDuration = 300;
 const MAX_STEPS = 30;
@@ -56,6 +59,22 @@ const StreamBodySchema = z.object({
 //   done   { text, toolCalls, screenshots, usage, model, provider }
 //   error  { error }
 export async function POST(req: NextRequest) {
+  const auth = requireAuth(req);
+  if (auth) return auth;
+  const limited = rateLimit(`chat-stream:${clientKey(req)}`, 30, 60_000);
+  if (limited) return limited;
+  if (!tryEnter("chat-stream", 3)) {
+    return Response.json(
+      { error: "too many concurrent runs — try again shortly" },
+      { status: 429 }
+    );
+  }
+  // NOTE: the slot is released in the stream's finally block below, not here —
+  // handleStream returns the Response immediately while the run continues.
+  return handleStream(req);
+}
+
+async function handleStream(req: NextRequest) {
   let rawBody: unknown;
   try {
     rawBody = await req.json();
@@ -129,7 +148,10 @@ export async function POST(req: NextRequest) {
            send("status", { label: "Delegating QA subtask…", thinking: "Breaking the browser work into a smaller QA subtask." });
           const subTools = getBrowserTools(
              (toolName, input) => send("status", { label: `Sub-agent: ${statusLabel(toolName, input)}`, thinking: thinkingFor(toolName, input), agent: "sub" }),
-            () => isCancelled(runId)
+            () => isCancelled(runId),
+            undefined,
+            undefined,
+            runId
           );
           const subResult = await generateText({
             model: llm,
@@ -162,7 +184,8 @@ export async function POST(req: NextRequest) {
           },
           () => isCancelled(runId),
           delegateTask,
-          awaitApproval
+          awaitApproval,
+          runId
         );
 
         let modelMessages: ModelMessage[] = messages.map((m) => ({
@@ -230,10 +253,10 @@ export async function POST(req: NextRequest) {
             )
           ) {
             try {
-              const st = await browser.getStatus();
+              const currentUrl = await browser.pageUrl(runId);
               const navigated = stepTools.includes("browser_navigate");
-              if (navigated || (st.url && st.url !== lastShotUrl)) {
-                const shot = await browser.screenshot(false);
+              if (navigated || (currentUrl && currentUrl !== lastShotUrl)) {
+                const shot = await browser.screenshot(false, runId);
                 screenshots.push(shot);
                 send("shot", shot);
                 lastShotUrl = shot.url;
@@ -279,6 +302,9 @@ export async function POST(req: NextRequest) {
       } finally {
         rejectRunApprovals(runId);
         endRun(runId);
+        leave("chat-stream");
+        await browser.closeSession(runId).catch(() => null);
+        await flushLogs().catch(() => null);
         controller.close();
       }
     },

@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import { join, normalize, sep } from "node:path";
+import { requireAuth } from "@/lib/auth";
+import { clientKey, rateLimit } from "@/lib/rate-limit";
 
 // GET /api/tests/artifact?path=test-results/... — sajikan trace/video/screenshot.
 // Path wajib di dalam ./test-results (cegah traversal).
 export async function GET(req: Request) {
+  const auth = requireAuth(req);
+  if (auth) return auth;
+  const limited = rateLimit(`artifact:${clientKey(req)}`, 60, 60_000);
+  if (limited) return limited;
   const { searchParams } = new URL(req.url);
   const rel = searchParams.get("path") ?? "";
   const norm = normalize(rel);

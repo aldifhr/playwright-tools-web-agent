@@ -1,24 +1,37 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import * as bw from "@/lib/browser";
+import { requireAuth } from "@/lib/auth";
+import { clientKey, rateLimit } from "@/lib/rate-limit";
 
-export async function GET() {
-  const status = await bw.getStatus();
-  return NextResponse.json({ ...status, playwright: "chromium-headless" });
+const BrowserActionSchema = z.object({
+  action: z.enum(["status", "navigate", "screenshot", "text", "snapshot", "click", "type", "back", "close"]).optional(),
+  url: z.string().max(2000).optional(),
+  selector: z.string().max(1000).optional(),
+  text: z.string().max(20000).optional(),
+  submit: z.boolean().optional(),
+  fullPage: z.boolean().optional(),
+});
+
+function guard(req: Request) {
+  return requireAuth(req) ?? rateLimit(`browser:${clientKey(req)}`, 60, 60_000);
 }
 
-type Action =
-  | { action: "status" }
-  | { action: "navigate"; url: string }
-  | { action: "screenshot"; fullPage?: boolean }
-  | { action: "text" }
-  | { action: "snapshot" }
-  | { action: "click"; selector: string }
-  | { action: "type"; selector: string; text: string; submit?: boolean }
-  | { action: "back" }
-  | { action: "close" };
+export async function GET(req: Request) {
+  const blocked = guard(req);
+  if (blocked) return blocked;
+  const status = await bw.getStatus();
+  return NextResponse.json({ ...status, playwright: "chromium-headless", sessions: bw.sessionCount() });
+}
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as Partial<Action>;
+  const blocked = guard(req);
+  if (blocked) return blocked;
+  const parsed = BrowserActionSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "invalid request body" }, { status: 400 });
+  }
+  const body = parsed.data;
   try {
     switch (body.action) {
       case "navigate": {

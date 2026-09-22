@@ -40,8 +40,13 @@ export function getBrowserTools(
   onCall?: (toolName: string, input: unknown) => void,
   shouldAbort?: () => boolean,
   delegateTask?: (task: string) => Promise<unknown>,
-  awaitApproval?: (toolName: string, input: unknown) => Promise<boolean>
+  awaitApproval?: (toolName: string, input: unknown) => Promise<boolean>,
+  // Isolated browser session for this run. When set, all browser tools act
+  // on the run's own BrowserContext; when unset they use the shared page.
+  runId?: string
 ) {
+  // Session id captured once — every tool lambda below closes over it.
+  const sid = runId;
   const wrap = <T extends object>(
     toolName: string,
     fn: (input: T) => Promise<unknown>
@@ -106,25 +111,25 @@ export function getBrowserTools(
        description: "Open a URL in the automated browser",
       inputSchema: z.object({ url: z.string().describe("full URL") }),
       execute: wrap("browser_navigate", async ({ url }: { url: string }) =>
-        browser.navigate(url)
+        browser.navigate(url, sid)
       ),
     }),
     browser_snapshot: tool({
       description: "Inspect the active page structure (tag, role, accessible name, text)",
       inputSchema: z.object({}),
-      execute: wrap("browser_snapshot", async () => browser.snapshot()),
+      execute: wrap("browser_snapshot", async () => browser.snapshot(12000, sid)),
     }),
     browser_get_text: tool({
       description: "Read the visible page text",
       inputSchema: z.object({}),
-      execute: wrap("browser_get_text", async () => browser.getText()),
+      execute: wrap("browser_get_text", async () => browser.getText(8000, sid)),
     }),
     browser_click: tool({
        description:
         "Click an element using a CSS selector or numeric snapshot index",
       inputSchema: z.object({ selector: z.string() }),
       execute: wrap("browser_click", async ({ selector }: { selector: string }) =>
-        browser.click(selector)
+        browser.click(selector, sid)
       ),
     }),
     browser_type: tool({
@@ -144,7 +149,7 @@ export function getBrowserTools(
           selector: string;
           text: string;
           submit?: boolean;
-        }) => browser.typeText(selector, text, submit)
+        }) => browser.typeText(selector, text, submit, sid)
       ),
     }),
     browser_screenshot: tool({
@@ -155,13 +160,13 @@ export function getBrowserTools(
       execute: wrap(
         "browser_screenshot",
         async ({ fullPage }: { fullPage?: boolean }) =>
-          browser.screenshot(!!fullPage)
+          browser.screenshot(!!fullPage, sid)
       ),
     }),
     browser_go_back: tool({
       description: "Go back to the previous page",
       inputSchema: z.object({}),
-      execute: wrap("browser_go_back", async () => browser.goBack()),
+      execute: wrap("browser_go_back", async () => browser.goBack(sid)),
     }),
     browser_scroll: tool({
       description: "Scroll the page to reveal content below the fold, then snapshot again",
@@ -172,7 +177,7 @@ export function getBrowserTools(
       execute: wrap(
         "browser_scroll",
         async ({ direction, pixels }: { direction?: "down" | "up" | "top" | "bottom"; pixels?: number }) =>
-          browser.scrollPage(direction ?? "down", pixels ?? 600)
+          browser.scrollPage(direction ?? "down", pixels ?? 600, sid)
       ),
     }),
     test_assert: tool({
@@ -188,12 +193,12 @@ export function getBrowserTools(
         async ({ kind, selector, text, expected }: { kind: "text_contains" | "visible" | "count"; selector?: string; text?: string; expected?: number }) => {
           if (kind === "text_contains") {
             if (!text) throw new Error("text is required for text_contains");
-            return browser.assertPage({ kind, text });
+            return browser.assertPage({ kind, text }, sid);
           }
           if (!selector) throw new Error("selector is required for visible/count");
           return kind === "visible"
-            ? browser.assertPage({ kind, selector })
-            : browser.assertPage({ kind, selector, expected: expected ?? 1 });
+            ? browser.assertPage({ kind, selector }, sid)
+            : browser.assertPage({ kind, selector, expected: expected ?? 1 }, sid);
         }
       ),
     }),
