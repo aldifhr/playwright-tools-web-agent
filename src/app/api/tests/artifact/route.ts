@@ -17,7 +17,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "invalid path" }, { status: 400 });
   }
 
-  const abs = join(process.cwd(), norm);
+  const abs = join(/*turbopackIgnore: true*/ process.cwd(), norm);
   const root = join(process.cwd(), "test-results") + sep;
   if (!abs.startsWith(root)) {
     return NextResponse.json({ error: "invalid path" }, { status: 400 });

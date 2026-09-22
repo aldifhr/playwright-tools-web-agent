@@ -17,6 +17,9 @@ export type ToolLog = {
 };
 
 const SENSITIVE = /password|token|secret|api[-_]?key|authorization|cookie/i;
+let cache: ToolLog[] | null = null;
+let loadPromise: Promise<ToolLog[]> | null = null;
+let writeQueue = Promise.resolve();
 
 function redact(value: unknown, depth = 0): unknown {
   if (depth > 4) return "[truncated]";
@@ -35,8 +38,7 @@ function redact(value: unknown, depth = 0): unknown {
 
 export async function recordToolLog(entry: Omit<ToolLog, "id" | "at">) {
   try {
-    await fs.mkdir(DIR, { recursive: true });
-    const current = await loadToolLogs();
+    const current = await getCache();
     current.push({
       ...entry,
       id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
@@ -45,24 +47,48 @@ export async function recordToolLog(entry: Omit<ToolLog, "id" | "at">) {
       output: redact(entry.output),
       error: entry.error?.slice(0, 2_000),
     });
-    await fs.writeFile(FILE, JSON.stringify(current.slice(-MAX_ENTRIES)), "utf8");
+    cache = current.slice(-MAX_ENTRIES);
+    const snapshot = JSON.stringify(cache);
+    // Serialize writes so simultaneous tool calls cannot overwrite each other.
+    writeQueue = writeQueue.then(async () => {
+      await fs.mkdir(DIR, { recursive: true });
+      await fs.writeFile(FILE, snapshot, "utf8");
+    });
+    await writeQueue;
   } catch (error) {
     console.error("tool log error:", error);
   }
 }
 
 export async function loadToolLogs(): Promise<ToolLog[]> {
+  return getCache();
+}
+
+async function getCache(): Promise<ToolLog[]> {
+  if (cache) return cache;
+  if (!loadPromise) {
+    loadPromise = (async () => {
+      try {
+        const raw = await fs.readFile(FILE, "utf8");
+        const value = JSON.parse(raw) as unknown;
+        cache = Array.isArray(value) ? (value as ToolLog[]).slice(-MAX_ENTRIES) : [];
+      } catch {
+        cache = [];
+      }
+      return cache;
+    })();
+  }
   try {
-    const raw = await fs.readFile(FILE, "utf8");
-    const value = JSON.parse(raw) as unknown;
-    return Array.isArray(value) ? (value as ToolLog[]).slice(-MAX_ENTRIES) : [];
+    return await loadPromise;
   } catch {
-    return [];
+    cache = [];
+    return cache;
   }
 }
 
 export async function clearToolLogs() {
   try {
+    cache = [];
     await fs.unlink(FILE);
   } catch {}
 }

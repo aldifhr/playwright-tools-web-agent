@@ -69,6 +69,9 @@ export async function POST(req: NextRequest) {
   }
 
   const chosenModel = model || PROVIDERS[provider].models[0];
+  // The prompt is stable for the lifetime of a run. Rebuilding it per tool
+  // step rereads MEMORY.md and every approved skill unnecessarily.
+  const systemPrompt = getSystemPrompt({ provider, model: chosenModel, baseUrl });
   const wantsVisualEvidence = messages.some(
     (message) =>
       message.role === "user" &&
@@ -150,8 +153,8 @@ export async function POST(req: NextRequest) {
             return;
           }
            const result = await generateText({
-            model: llm,
-            system: getSystemPrompt({ provider, model: chosenModel, baseUrl }),
+             model: llm,
+             system: systemPrompt,
             messages: modelMessages,
             tools,
             stopWhen: stepCountIs(1),

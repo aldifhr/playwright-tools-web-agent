@@ -239,7 +239,7 @@ export async function bash(command: string) {
   }
   console.info(`[browser_bash] ${raw}`);
   return new Promise<{ exitCode: number | null; stdout: string; stderr: string }>((resolvePromise, reject) => {
-    execFile(executable, parts, {
+    execFile(/*turbopackIgnore: true*/ executable, parts, {
       cwd: process.cwd(),
       timeout: 10_000,
       // Allow the process to finish; the response below still caps output.
@@ -271,13 +271,13 @@ export async function readFile(path: string, limit = MAX_READ) {
   const root = process.cwd();
   const requested = String(path ?? "").trim();
   if (!requested) throw new Error("path is required");
-  const candidate = resolve(root, requested);
+  const candidate = resolve(/*turbopackIgnore: true*/ root, requested);
   const realPath = await fs.realpath(candidate).catch(() => {
     throw new Error("file not found");
   });
   const allowed =
-    ALLOWED_READ_DIRS.some((dir) => inside(resolve(root, dir), realPath)) ||
-    ALLOWED_READ_FILES.some((file) => realPath === resolve(root, file));
+    ALLOWED_READ_DIRS.some((dir) => inside(resolve(/*turbopackIgnore: true*/ root, dir), realPath)) ||
+    ALLOWED_READ_FILES.some((file) => realPath === resolve(/*turbopackIgnore: true*/ root, file));
   if (!allowed) {
     throw new Error("path is not allowed; only approved project paths may be read");
   }
