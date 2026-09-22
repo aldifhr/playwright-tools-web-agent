@@ -9,6 +9,7 @@ const TRUSTED_AGENT_SKILLS = new Set([
   "playwright-best-practices",
   "playwright-explore-website",
   "playwright-stealth-verify",
+  "senior-qa-engineer",
 ]);
 
 const FALLBACK_SKILLS: SkillSummary[] = [

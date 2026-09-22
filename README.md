@@ -75,6 +75,7 @@ Skills installed with the `npx skills add` CLI for OpenCode and other agent ecos
 - `playwright-best-practices`
 - `playwright-explore-website`
 - `playwright-stealth-verify`
+- `senior-qa-engineer`
 
 Installed skills are treated as untrusted reference instructions. They cannot add tools, grant permissions, override the system prompt, or bypass QA and security rules. High-risk skills are not loaded automatically.
 
