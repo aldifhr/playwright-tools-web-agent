@@ -15,6 +15,7 @@ import {
   Globe,
   Loader2,
   RefreshCw,
+  RotateCcw,
   Sparkles,
 } from "lucide-react";
 import { DEFAULT_BASE_URLS, PROVIDERS, ProviderId } from "@/lib/providers";
@@ -48,6 +49,7 @@ export default function SettingsPage() {
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [test, setTest] = useState<{ title: string; url: string; image: string } | null>(null);
   const [testError, setTestError] = useState("");
   const [liveModels, setLiveModels] = useState<string[] | null>(null);
@@ -154,7 +156,6 @@ export default function SettingsPage() {
       }
     }, 900);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, apiKey, baseUrl]);
 
   async function testBrowser() {
@@ -184,6 +185,26 @@ export default function SettingsPage() {
        showError("Browser test failed", msg);
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function resetBrowser() {
+    setResetting(true);
+    try {
+      const response = await fetch("/api/browser", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "close" }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Reset failed");
+      setTest(null);
+      setTestError("");
+      success("Browser reset", "The active Chromium page was closed.");
+    } catch (e) {
+      showError("Browser reset failed", e instanceof Error ? e.message : "Reset failed");
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -410,6 +431,16 @@ export default function SettingsPage() {
                 >
                   {testing ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
                    {testing ? "Opening…" : "Test example.com"}
+                </Button>
+                <Button
+                  onClick={resetBrowser}
+                  disabled={testing || resetting}
+                  size="sm"
+                  variant="outline"
+                  className="text-xs"
+                >
+                  {resetting ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                  {resetting ? "Resetting…" : "Reset"}
                 </Button>
               </div>
               {testError && <p className="mt-2 text-xs text-zinc-300">⚠ {testError}</p>}

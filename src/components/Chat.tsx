@@ -3,7 +3,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -225,7 +224,7 @@ export default function Chat() {
       setHydrated(true);
     }, 0);
     return () => clearTimeout(t);
-  }, []);
+  }, [setActiveId, setSessions, setSettings]);
 
   // reload settings saat kembali dari /settings
   useEffect(() => {
@@ -233,7 +232,7 @@ export default function Chat() {
     const onFocus = () => setSettings(loadSettings());
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [hydrated]);
+  }, [hydrated, setSettings]);
 
   const active = sessions.find((s) => s.id === activeId) ?? null;
   const messages: Msg[] = active?.messages ?? [];
@@ -258,7 +257,7 @@ export default function Chat() {
     }
   }, [activeId, hydrated, input]);
 
-  function commitMessages(id: string, next: Msg[], userText?: string) {
+  const commitMessages = useCallback((id: string, next: Msg[], userText?: string) => {
     setSessions((prev) => {
       const list = prev.map((s) =>
         s.id === id
@@ -276,7 +275,7 @@ export default function Chat() {
       saveSessions(list);
       return list;
     });
-  }
+  }, [setSessions]);
 
   useEffect(() => {
     const cancel = cancelActiveRun;
@@ -301,7 +300,7 @@ export default function Chat() {
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [activeId, loading, cancelActiveRun]);
+  }, [activeId, loading, cancelActiveRun, commitMessages]);
 
   function autosize() {
     const el = taRef.current;

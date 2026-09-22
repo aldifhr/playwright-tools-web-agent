@@ -4,6 +4,7 @@ import { join } from "node:path";
 const DIR = join(process.cwd(), "logs");
 const FILE = join(DIR, "tool-logs.json");
 const MAX_ENTRIES = 500;
+const MAX_FILE_BYTES = 2_000_000;
 
 export type ToolLog = {
   id: string;
@@ -48,6 +49,9 @@ export async function recordToolLog(entry: Omit<ToolLog, "id" | "at">) {
       error: entry.error?.slice(0, 2_000),
     });
     cache = current.slice(-MAX_ENTRIES);
+    while (cache.length > 1 && JSON.stringify(cache).length > MAX_FILE_BYTES) {
+      cache.shift();
+    }
     const snapshot = JSON.stringify(cache);
     // Serialize writes so simultaneous tool calls cannot overwrite each other.
     writeQueue = writeQueue.then(async () => {

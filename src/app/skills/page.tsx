@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Download, ExternalLink, Loader2, Search, ShieldCheck, Trash2, Sparkles } from "lucide-react";
 
@@ -13,7 +13,7 @@ export default function SkillsPage() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
-  async function load(search = query) {
+  const load = useCallback(async (search = query) => {
     try {
       const response = await fetch(`/api/skills?q=${encodeURIComponent(search)}`, { cache: "no-store" });
       const data = await response.json();
@@ -24,12 +24,12 @@ export default function SkillsPage() {
     } catch (value) {
       setError(value instanceof Error ? value.message : "Failed to load skills");
     }
-  }
+  }, [query]);
 
   useEffect(() => {
     const timer = setTimeout(() => { void load(""); }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [load]);
 
   async function toggle(skill: Skill) {
     setBusy(skill.id);

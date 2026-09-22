@@ -6,21 +6,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Brain, Loader2, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
 
-const container = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.05,
-    },
-  },
-};
-
-const item = {
-  hidden: { opacity: 0, y: 8 },
-  show: { opacity: 1, y: 0 },
-};
-
 export default function MemoryPage() {
   const [facts, setFacts] = useState<string[]>([]);
   const [input, setInput] = useState("");
