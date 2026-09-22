@@ -19,9 +19,8 @@ import { createApproval, rejectRunApprovals } from "@/lib/approvals";
 import { loadInstalledSkillsSync } from "@/lib/skills";
 import { assertPublicTarget } from "@/lib/ssrf";
 import { flushLogs } from "@/lib/tool-logs";
-import { requireAuth } from "@/lib/auth";
-import { clientKey, leave, rateLimit, tryEnter } from "@/lib/rate-limit";
-
+import { guardApi } from "@/lib/api-guard";
+import { leave, tryEnter } from "@/lib/rate-limit";
 export const maxDuration = 300;
 const MAX_STEPS = 30;
 
@@ -59,10 +58,8 @@ const StreamBodySchema = z.object({
 //   done   { text, toolCalls, screenshots, usage, model, provider }
 //   error  { error }
 export async function POST(req: NextRequest) {
-  const auth = requireAuth(req);
-  if (auth) return auth;
-  const limited = rateLimit(`chat-stream:${clientKey(req)}`, 30, 60_000);
-  if (limited) return limited;
+  const blocked = guardApi(req, { scope: "chat-stream", limit: 30 });
+  if (blocked) return blocked;
   if (!tryEnter("chat-stream", 3)) {
     return Response.json(
       { error: "too many concurrent runs — try again shortly" },

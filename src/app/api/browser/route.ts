@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import * as bw from "@/lib/browser";
-import { requireAuth } from "@/lib/auth";
-import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { guardApi } from "@/lib/api-guard";
 
 const BrowserActionSchema = z.object({
   action: z.enum(["status", "navigate", "screenshot", "text", "snapshot", "click", "type", "back", "close"]).optional(),
@@ -13,19 +12,16 @@ const BrowserActionSchema = z.object({
   fullPage: z.boolean().optional(),
 });
 
-function guard(req: Request) {
-  return requireAuth(req) ?? rateLimit(`browser:${clientKey(req)}`, 60, 60_000);
-}
 
 export async function GET(req: Request) {
-  const blocked = guard(req);
+  const blocked = guardApi(req, { scope: "browser" });
   if (blocked) return blocked;
   const status = await bw.getStatus();
   return NextResponse.json({ ...status, playwright: "chromium-headless", sessions: bw.sessionCount() });
 }
 
 export async function POST(req: Request) {
-  const blocked = guard(req);
+  const blocked = guardApi(req, { scope: "browser" });
   if (blocked) return blocked;
   const parsed = BrowserActionSchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {

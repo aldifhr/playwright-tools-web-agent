@@ -1,15 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { installSkill, listInstalledSkills, loadInstalledSkillsSync, removeSkill, searchSkills, setSkillDisabled } from "@/lib/skills";
-import { requireAuth } from "@/lib/auth";
-import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { guardApi } from "@/lib/api-guard";
 
-function guard(req: Request) {
-  return requireAuth(req) ?? rateLimit(`skills:${clientKey(req)}`, 60, 60_000);
-}
 
 export async function GET(request: Request) {
-  const blocked = guard(request);
+  const blocked = guardApi(request, { scope: "skills" });
   if (blocked) return blocked;
   try {
     const query = new URL(request.url).searchParams.get("q") ?? "";
@@ -24,7 +20,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const blocked = guard(request);
+  const blocked = guardApi(request, { scope: "skills" });
   if (blocked) return blocked;
   const parsed = z.object({
     action: z.enum(["remove", "disable", "enable"]).optional(),

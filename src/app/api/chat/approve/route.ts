@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveApproval } from "@/lib/approvals";
-import { requireAuth } from "@/lib/auth";
-import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { guardApi } from "@/lib/api-guard";
 
 // POST /api/chat/approve — resolve a pending human-in-the-loop approval.
 // Body: { runId, id, approved }
 export async function POST(req: Request) {
-  const auth = requireAuth(req);
-  if (auth) return auth;
-  const limited = rateLimit(`approve:${clientKey(req)}`, 60, 60_000);
-  if (limited) return limited;
+  const blocked = guardApi(req, { scope: "approve", limit: 60 });
+  if (blocked) return blocked;
   const parsed = z.object({
     runId: z.string().min(1).max(100),
     id: z.string().min(1).max(100),

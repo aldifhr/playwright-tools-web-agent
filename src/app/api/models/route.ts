@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { DEFAULT_BASE_URLS } from "@/lib/providers";
 import { assertPublicTarget } from "@/lib/ssrf";
-import { requireAuth } from "@/lib/auth";
-import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { guardApi } from "@/lib/api-guard";
 
 export const maxDuration = 30;
 
@@ -54,10 +53,8 @@ async function listAnthropic(baseUrl: string, apiKey: string): Promise<string[]>
 }
 
 export async function POST(req: Request) {
-  const auth = requireAuth(req);
-  if (auth) return auth;
-  const limited = rateLimit(`models:${clientKey(req)}`, 30, 60_000);
-  if (limited) return limited;
+  const blocked = guardApi(req, { scope: "models", limit: 30 });
+  if (blocked) return blocked;
   const parsed = z.object({
     provider: z.enum(["openai", "anthropic"]),
     apiKey: z.string().min(1).max(500),

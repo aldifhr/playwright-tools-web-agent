@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { cancelRun } from "@/lib/runs";
-import { requireAuth } from "@/lib/auth";
-import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { guardApi } from "@/lib/api-guard";
 
 // POST /api/chat/cancel { runId } — hentikan run agent yang sedang jalan.
 export async function POST(req: Request) {
-  const auth = requireAuth(req);
-  if (auth) return auth;
-  const limited = rateLimit(`cancel:${clientKey(req)}`, 60, 60_000);
-  if (limited) return limited;
+  const blocked = guardApi(req, { scope: "cancel", limit: 60 });
+  if (blocked) return blocked;
   const parsed = z.object({ runId: z.string().min(1).max(100) }).safeParse(
     await req.json().catch(() => ({}))
   );

@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { listSpecs, readSpec, deleteSpec, deleteCases, readCases, runSpec, recordRun, loadLastRun, loadRunLog } from "@/lib/specs";
-import { requireAuth } from "@/lib/auth";
-import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { guardApi } from "@/lib/api-guard";
 
 const TestsBodySchema = z.object({
   action: z.enum(["get", "delete", "cases", "run"]).optional(),
@@ -11,12 +10,9 @@ const TestsBodySchema = z.object({
 
 export const maxDuration = 300;
 
-function guard(req: Request) {
-  return requireAuth(req) ?? rateLimit(`tests:${clientKey(req)}`, 60, 60_000);
-}
 
 export async function GET(req: Request) {
-  const blocked = guard(req);
+  const blocked = guardApi(req, { scope: "tests" });
   if (blocked) return blocked;
   try {
     const tests = await listSpecs();
@@ -36,7 +32,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const blocked = guard(req);
+  const blocked = guardApi(req, { scope: "tests" });
   if (blocked) return blocked;
   const parsed = TestsBodySchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {

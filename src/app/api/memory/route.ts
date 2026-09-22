@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { listFacts, saveFact, forgetFact } from "@/lib/memory";
-import { requireAuth } from "@/lib/auth";
-import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { guardApi } from "@/lib/api-guard";
 
 const MemoryBodySchema = z.object({
   action: z.enum(["save", "forget"]).optional(),
@@ -10,12 +9,9 @@ const MemoryBodySchema = z.object({
   query: z.string().max(200).optional(),
 });
 
-function guard(req: Request) {
-  return requireAuth(req) ?? rateLimit(`memory:${clientKey(req)}`, 60, 60_000);
-}
 
 export async function GET(req: Request) {
-  const blocked = guard(req);
+  const blocked = guardApi(req, { scope: "memory" });
   if (blocked) return blocked;
   try {
     return NextResponse.json({ facts: listFacts() });
@@ -28,7 +24,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const blocked = guard(req);
+  const blocked = guardApi(req, { scope: "memory" });
   if (blocked) return blocked;
   const parsed = MemoryBodySchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
