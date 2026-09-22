@@ -19,7 +19,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { DEFAULT_BASE_URLS, PROVIDERS, ProviderId } from "@/lib/providers";
-import { Settings, defaultSettings, loadSettings, saveSettings } from "@/lib/store";
+import { Settings, ATTACHMENT_CAPS, defaultSettings, loadSettings, saveSettings } from "@/lib/store";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -404,7 +404,40 @@ export default function SettingsPage() {
             </p>
           ) : null}
           <p className="mt-1.5 text-[11px] text-zinc-600">
-              The key is stored only in this browser&apos;s localStorage.
+             The key is stored only in this browser&apos;s localStorage.
+          </p>
+        </motion.div>
+
+        {/* attachment size */}
+        <motion.div
+          variants={section}
+          initial="hidden"
+          animate="show"
+          transition={{ delay: 0.25 }}
+        >
+          <Label className="mt-6 mb-2 text-[11px] font-semibold tracking-widest text-zinc-500 uppercase">
+            Max attachment size (per file)
+          </Label>
+          <div className="grid grid-cols-3 gap-2">
+            {ATTACHMENT_CAPS.map((cap) => (
+              <button
+                key={cap}
+                onClick={() => patch({ attachmentCap: cap })}
+                className={`rounded-2xl border p-3 text-center transition ${
+                  settings.attachmentCap === cap
+                    ? "border-white/50 bg-white/10"
+                    : "border-white/10 bg-white/5 hover:bg-white/10"
+                }`}
+              >
+                <p className={`text-sm font-semibold ${settings.attachmentCap === cap ? "text-white" : "text-zinc-400"}`}>
+                  {(cap / 1000).toFixed(0)}k
+                </p>
+                <p className="mt-0.5 text-[10px] text-zinc-600">~{(cap / 4 / 1000).toFixed(1)}k tokens</p>
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-zinc-600">
+            Larger files cost more tokens per message. The full file is sent up to this limit.
           </p>
         </motion.div>
 

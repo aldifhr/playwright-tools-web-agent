@@ -24,11 +24,14 @@ export type Session = {
   updatedAt: number;
 };
 
+export const ATTACHMENT_CAPS = [8_000, 20_000, 50_000] as const;
+
 export type Settings = {
   provider: ProviderId;
   model: string;
   keys: Partial<Record<ProviderId, string>>;
   baseUrls: Record<ProviderId, string>;
+  attachmentCap: number;
 };
 
 const S_KEY = "pw_settings_v1";
@@ -41,6 +44,7 @@ export function defaultSettings(): Settings {
     model: PROVIDERS.openai.models[0],
     keys: {},
     baseUrls: { ...DEFAULT_BASE_URLS },
+    attachmentCap: 20_000,
   };
 }
 
@@ -60,6 +64,9 @@ export function loadSettings(): Settings {
     const provider =
       s.provider && PROVIDERS[s.provider] ? s.provider : d.provider;
     const baseUrls = { ...DEFAULT_BASE_URLS, ...(s.baseUrls ?? {}) };
+    const attachmentCap = ATTACHMENT_CAPS.includes(s.attachmentCap as (typeof ATTACHMENT_CAPS)[number])
+      ? (s.attachmentCap as number)
+      : defaultSettings().attachmentCap;
     return {
       provider,
       model:
@@ -68,6 +75,7 @@ export function loadSettings(): Settings {
           : PROVIDERS[provider].models[0],
       keys: { ...legacy, ...(s.keys ?? {}) },
       baseUrls,
+      attachmentCap,
     };
   } catch {
     return d;

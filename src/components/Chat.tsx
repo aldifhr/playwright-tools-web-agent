@@ -340,13 +340,35 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
     }
   }
 
-  function copyMessage(content: string) {
-    navigator.clipboard?.writeText(content).catch(() => {});
+function copyMessage(content: string) {
+  navigator.clipboard?.writeText(content).catch(() => {});
+}
+
+// Attached file dumps ride along to the model but stay hidden in the UI:
+// split the visible prompt from the attached file sections.
+function splitFiles(content: string): { text: string; files: { name: string; body: string }[] } {
+  const marker = "\n\nAttached files:\n";
+  const idx = content.indexOf(marker);
+  if (idx < 0) return { text: content, files: [] };
+  const text = content.slice(0, idx);
+  const rest = content.slice(idx + marker.length);
+  const files: { name: string; body: string }[] = [];
+  const header = /^--- (.+) ---$/gm;
+  let match: RegExpExecArray | null;
+  const headers: { name: string; index: number; end: number }[] = [];
+  while ((match = header.exec(rest)) !== null) {
+    headers.push({ name: match[1], index: match.index, end: match.index + match[0].length });
   }
+  headers.forEach((h, i) => {
+    const body = rest.slice(h.end, headers[i + 1]?.index ?? rest.length).trim();
+    files.push({ name: h.name, body });
+  });
+  return { text, files };
+}
 
   async function send(text?: string) {
     const draft = (text ?? input).trim();
-    const MAX_ATTACH_CHARS = 8_000;
+    const MAX_ATTACH_CHARS = settings.attachmentCap || 20_000;
     const fileContext = attachments.length
       ? "\n\nAttached files:\n" + attachments.map((file) => {
           const truncated = file.text.length > MAX_ATTACH_CHARS;
@@ -376,7 +398,9 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
     setError("");
     setLastFailedPrompt(null);
     const next: Msg[] = [...base, { role: "user", content, time: now() }];
-    commitMessages(targetId, next, content);
+    // Title from the typed prompt only — never from the attached file dump.
+    const titleSource = draft.trim() ? draft : attachments.length ? `Attached: ${attachments[0].name}` : content;
+    commitMessages(targetId, next, titleSource);
     setInput("");
     setAttachments([]);
     if (taRef.current) taRef.current.style.height = "auto";
@@ -764,10 +788,36 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
                          <div key={i} className="group animate-fade-up flex justify-end">
                           <div className="max-w-[85%]">
                              <div className="rounded-2xl rounded-br-md bg-white px-4 py-3 text-sm font-medium text-black shadow-lg shadow-white/10">
-                               {m.content}
+                               {(() => {
+                                 const { text, files } = splitFiles(m.content);
+                                 return (
+                                   <>
+                                     {text && <p className="whitespace-pre-wrap">{text}</p>}
+                                     {!!files.length && (
+                                       <div className="mt-2 flex flex-wrap gap-1.5">
+                                         {files.map((f) => (
+                                           <span key={f.name} className="inline-flex items-center gap-1 rounded-full bg-black/10 px-2.5 py-1 text-[11px] font-semibold text-black">
+                                             <FileText size={11} /> {f.name}
+                                           </span>
+                                         ))}
+                                       </div>
+                                     )}
+                                     {!!files.length && (
+                                       <details className="mt-2">
+                                         <summary className="cursor-pointer text-[11px] font-semibold text-zinc-600 hover:text-black">
+                                           Show attached content
+                                         </summary>
+                                         <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-black/5 p-2 text-[10px] font-normal whitespace-pre-wrap text-zinc-700">
+                                           {files.map((f) => `--- ${f.name} ---\n${f.body}`).join("\n")}
+                                         </pre>
+                                       </details>
+                                     )}
+                                   </>
+                                 );
+                               })()}
                              </div>
                              <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-zinc-600">
-                               <button type="button" onClick={() => { setInput(m.content); requestAnimationFrame(autosize); }} className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100 hover:text-white"><Pencil size={10} /> Edit</button>
+                               <button type="button" onClick={() => { setInput(splitFiles(m.content).text); requestAnimationFrame(autosize); }} className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100 hover:text-white"><Pencil size={10} /> Edit</button>
                                <span>{m.time}</span>
                              </div>
                           </div>
