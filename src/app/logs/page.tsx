@@ -47,7 +47,7 @@ export default function LogsPage() {
   }, []);
 
   async function clear() {
-    if (!window.confirm("Hapus semua tool log?")) return;
+    if (!window.confirm("Delete all tool logs?")) return;
     setBusy(true);
     try {
       await fetch("/api/logs", { method: "DELETE" });
@@ -85,7 +85,7 @@ export default function LogsPage() {
           <div className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-black"><ClipboardList size={22} /></div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Tool Logs</h1>
-            <p className="mt-1 text-sm text-zinc-500">Audit browser actions, bash, dan pembacaan file.</p>
+             <p className="mt-1 text-sm text-zinc-500">Audit browser actions, shell commands, and file reads.</p>
           </div>
         </header>
 
@@ -96,17 +96,17 @@ export default function LogsPage() {
         </div>
 
         <div className="mt-6 flex flex-wrap gap-2">
-          <button onClick={() => setFilter("all")} className={`rounded-full px-3 py-1.5 text-xs ${filter === "all" ? "bg-white text-black" : "bg-white/8 text-zinc-400"}`}>Semua</button>
+           <button onClick={() => setFilter("all")} className={`rounded-full px-3 py-1.5 text-xs ${filter === "all" ? "bg-white text-black" : "bg-white/8 text-zinc-400"}`}>All</button>
           {tools.map((tool) => <button key={tool} onClick={() => setFilter(tool)} className={`rounded-full px-3 py-1.5 text-xs ${filter === tool ? "bg-white text-black" : "bg-white/8 text-zinc-400"}`}>{tool}</button>)}
         </div>
 
         <div className="mt-3 overflow-hidden rounded-2xl border border-white/10">
-          {visible.length === 0 ? <div className="p-12 text-center text-sm text-zinc-500">Belum ada tool log.</div> : visible.map((log) => (
+           {visible.length === 0 ? <div className="p-12 text-center text-sm text-zinc-500">No tool logs yet.</div> : visible.map((log) => (
             <details key={log.id} className="border-b border-white/8 last:border-b-0">
               <summary className="flex cursor-pointer list-none flex-wrap items-center gap-3 px-4 py-3 hover:bg-white/5">
                 {log.status === "success" ? <CheckCircle2 size={16} className="text-zinc-300" /> : <XCircle size={16} className="text-white" />}
                 <code className="text-xs text-zinc-200">{log.tool}</code>
-                <span className="text-[11px] text-zinc-500">{new Date(log.at).toLocaleString("id-ID")}</span>
+                 <span className="text-[11px] text-zinc-500">{new Date(log.at).toLocaleString("en-US")}</span>
                 <span className="ml-auto text-[11px] text-zinc-500">{log.durationMs}ms</span>
               </summary>
               <div className="grid gap-3 bg-black/30 px-4 pb-4 pt-1 md:grid-cols-2">

@@ -15,7 +15,7 @@ export async function GET() {
     return NextResponse.json({ tests, lastRun, history: await loadRunLog() });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "gagal" },
+      { error: e instanceof Error ? e.message : "failed" },
       { status: 500 }
     );
   }
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     switch (body.action) {
       case "get": {
         if (!body.file) {
-          return NextResponse.json({ error: "file wajib diisi" }, { status: 400 });
+           return NextResponse.json({ error: "file is required" }, { status: 400 });
         }
         return NextResponse.json({
           file: body.file,
@@ -39,14 +39,14 @@ export async function POST(req: Request) {
       }
       case "delete": {
         if (!body.file) {
-          return NextResponse.json({ error: "file wajib diisi" }, { status: 400 });
+           return NextResponse.json({ error: "file is required" }, { status: 400 });
         }
         await deleteCases(body.file);
         return NextResponse.json(await deleteSpec(body.file));
       }
       case "cases": {
         if (!body.file) {
-          return NextResponse.json({ error: "file wajib diisi" }, { status: 400 });
+           return NextResponse.json({ error: "file is required" }, { status: 400 });
         }
         return NextResponse.json({ cases: await readCases(body.file) });
       }
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     }
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "gagal" },
+      { error: e instanceof Error ? e.message : "failed" },
       { status: 500 }
     );
   }

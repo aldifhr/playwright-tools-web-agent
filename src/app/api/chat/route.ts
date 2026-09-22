@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     };
 
     if (!messages?.length) {
-      return NextResponse.json({ error: "messages kosong" }, { status: 400 });
+      return NextResponse.json({ error: "messages cannot be empty" }, { status: 400 });
     }
 
     const chosenModel = model || PROVIDERS[provider].models[0];
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
         const subResult = await generateText({
           model: llm,
           system:
-            "Kamu adalah sub-agent QA. Kerjakan hanya subtask yang diberikan, maksimal 8 langkah tool, lalu kembalikan hasil ringkas. Jangan mendelegasikan subtask lagi.",
+            "You are a QA sub-agent. Work only on the assigned subtask, use at most 8 tool steps, then return a concise result. Do not delegate again.",
           messages: [{ role: "user", content: task }],
           tools: getBrowserTools(),
           stopWhen: stepCountIs(8),

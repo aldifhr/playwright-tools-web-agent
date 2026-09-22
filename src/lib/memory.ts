@@ -59,10 +59,10 @@ function looksSecret(fact: string): boolean {
 
 export function saveFact(fact: string): { saved: string; total: number } {
   const clean = String(fact ?? "").trim().replace(/\s+/g, " ").slice(0, MAX_LEN);
-  if (!clean) throw new Error("fakta kosong");
+  if (!clean) throw new Error("fact cannot be empty");
   if (looksSecret(clean)) {
     throw new Error(
-      "ditolak: jangan simpan password/API key/token di memory. Minta user menyimpannya di /settings."
+      "rejected: do not store passwords, API keys, or tokens in memory. Store them in /settings instead."
     );
   }
   const facts = listFacts();
@@ -72,7 +72,7 @@ export function saveFact(fact: string): { saved: string; total: number } {
   }
   if (facts.length >= MAX_FACTS) {
     throw new Error(
-      `memory penuh (${MAX_FACTS} fakta) — hapus yang usang via memory_forget dulu`
+      `memory is full (${MAX_FACTS} facts) — remove an outdated fact with memory_forget first`
     );
   }
   const raw = readFile();
@@ -90,7 +90,7 @@ export function saveFact(fact: string): { saved: string; total: number } {
 
 export function forgetFact(query: string): { removed: number; total: number } {
   const q = String(query ?? "").trim().toLowerCase();
-  if (!q) throw new Error("kata kunci kosong");
+  if (!q) throw new Error("keyword cannot be empty");
   const raw = readFile();
   const lines = raw.split("\n");
   const kept = lines.filter((l) => {

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "playwright-best-practices": {
+      "source": "currents-dev/playwright-best-practices-skill",
+      "sourceType": "github",
+      "skillPath": "playwright-best-practices/SKILL.md",
+      "computedHash": "7eb144f734450fee649dc1d209114775ddda07cbf45be84fe969d3d4f3971dce"
+    },
+    "playwright-explore-website": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/playwright-explore-website/SKILL.md",
+      "computedHash": "ac361696198c2db22a0f9d3aa456d2f83c9f0110bf00d6ca529f735395fe3a5c"
+    },
+    "playwright-stealth-verify": {
+      "source": "liarjsdev/liarjs-skills",
+      "sourceType": "github",
+      "skillPath": "skills/playwright-stealth-verify/SKILL.md",
+      "computedHash": "ba1067145d6c5e3d305fd4a5e94c3b8e7d91081bd87ea437cf78581e16026ca6"
+    },
+    "senior-qa-engineer": {
+      "source": "javalenciacai/qaskills",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "325f886408129354f2e0f9edabbd25b788165330a13841ca6e54e03ad4ab9479"
+    }
+  }
+}

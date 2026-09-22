@@ -1,95 +1,133 @@
-# Playwright Chat AI — AI Browser Agent
+# FarayAgent — Playwright QA Browser Agent
 
-Web app chat AI yang mengendalikan **browser Chromium asli** (Playwright) langsung dari percakapan: buka URL, baca isi, klik, isi form, screenshot — plus bikin dan jalanin **test case Playwright** otomatis.
+FarayAgent is a QA-focused AI chat application that controls a real Chromium browser through Playwright. It can explore websites, create QA test-plan documents, save structured test cases, run Playwright specs, collect screenshots, and explain grounded results in English.
 
-Agent bernama **Faray**. UI hitam-putih, lima halaman: landing (`/`), **Chat** (`/chat`), **Tests** (`/tests`), **Settings** (`/settings`), **Memory** (`/memory`).
+## Features
+
+- Real-time browser exploration with SSE progress: `Planning` → `Browsing` → `Testing` → `Reporting`
+- QA-only agent scope with browser, test, memory, and delegation tools
+- Test plan documents with ten sections: objective, scope, strategy, deliverables, environment, roles, schedule, risks, and approval
+- Structured `.cases.json` test cases with area summaries and quality-gate metadata
+- Playwright spec save and run support
+- Screenshot evidence, tool timeline, artifact preview, and quality-gate reporting
+- Collapsible Agent activity summaries based on actual browser actions
+- Persistent chat sessions, drafts, memory, provider settings, and model selection
+- Skills marketplace at `/skills`, backed by the `skills.sh` ecosystem
+- English UI and agent responses
 
 ## Stack
 
-- Next.js 16 (App Router) + TypeScript + Tailwind CSS
-- Vercel AI SDK (`ai`) + `@ai-sdk/openai`, `@ai-sdk/anthropic` (Chat Completions; OpenAI-compatible gateway didukung via Base URL)
-- Playwright (Chromium headless, singleton server-side) + `@playwright/test` (runner)
+- Next.js 16 App Router, React 19, TypeScript, and Tailwind CSS
+- Vercel AI SDK with OpenAI and Anthropic providers
+- Playwright Chromium and `@playwright/test`
+- Framer Motion and Lucide icons
 
-## Jalankan
+## Getting Started
 
 ```bash
 npm install
 npx playwright install chromium
 npm run dev
-# buka http://localhost:3000
 ```
 
-## Pengaturan (`/settings`)
+Open `http://localhost:3000`.
 
-Dibuka dari badge model di topbar. Semua tersimpan di localStorage browser.
+Configure the provider, API key, base URL, and model at `/settings`. Settings are stored in the browser's local storage. Browser-only Playwright checks do not require an LLM API key.
 
-- **Provider**: OpenAI / Anthropic (klik kartu)
-- **API Key**: per provider. Tanpa key yang valid, chat mengembalikan error (browser manual + test Playwright tetap jalan tanpa key)
-- **Base URL**: default `https://api.openai.com/v1` / `https://api.anthropic.com/v1`. Bisa diganti gateway OpenAI-compatible (mis. proxy/self-hosted)
-- **Model**: kolom ketik-bebas + saran dropdown yang **terisi otomatis dari API provider** (`GET /models` pakai Base URL + API key, debounce saat mengetik). Badge jumlah model live kalau berhasil, fallback ke daftar bawaan kalau gagal, tombol "Muat ulang" untuk refresh manual
-- **Tes Playwright**: tombol "Tes buka example.com" — buktikan browser jalan tanpa perlu API key
+## Routes
 
-## Chat (`/chat`)
+- `/` — landing page
+- `/chat` — primary QA chat workflow
+- `/settings` — provider, model, API key, base URL, and Chromium check
+- `/memory` — manage durable facts stored in `MEMORY.md`
+- `/logs` — inspect tool calls, inputs, outputs, durations, and errors
+- `/skills` — search, install, and remove agent skills
 
-- **Sidebar kiri** = daftar sesi chat (multi-session, judul otomatis, tersimpan di localStorage, hapus per sesi). Tombol Chat baru aman diklik kapan pun — request yang masih jalan otomatis dibatalkan
-- **Status live real-time** via SSE (`POST /api/chat/stream`): `Agent is typing…` → `Opening …` → `Thinking…` → `Reading page…` → `Taking screenshot…` → `Saving test…` / `Running tests…` / `Remembering…`, sesuai tool yang dieksekusi
-- **Tombol ■ Stop** saat loading = interrupt beneran: loop server berhenti, tool yang mau jalan dibatalkan, stream ditutup bersih (`aborted`). Ganti sesi / tutup tab juga otomatis cancel
-- **Timeline tool** per jawaban (expandable) + **screenshot** dalam mock jendela browser (klik = lightbox)
-- **Preview kanan** = live browser: address bar manual (buka URL + auto-screenshot tanpa API key), screenshot terbaru, riwayat, auto-shot hemat (hanya saat pindah halaman, maks 6/run)
-- Contoh: "Buka hackernews dan ringkas 5 berita teratas", "Buka saucedemo.com dan login", "Cek harga bitcoin di coingecko"
+The old `/tests` and `/runs` pages are intentionally not part of the current UI. Test APIs remain available to the agent.
 
-## Test case Playwright (`/tests`)
+## Chat Workflow
 
-Dibuka dari ikon flask di topbar (ada badge jumlah spec).
+The chat supports:
 
-- **Via chat**: "buatkan test case login saucedemo dan jalankan" — agent eksplorasi → susun test plan → tulis spec → verifikasi run (perbaiki maks 2x) → lapor tabel markdown
-- **Generator**: kartu "Generate test case baru" — isi URL + skenario (+ kredensial demo opsional) → Generate + Run dengan progress live
-- **Format tabel** (chat + ikon tabel per spec): ID | Area | Type | Title | Preconditions | Test Data | Steps | Expected | **Actual** (✓ sesuai expected / potongan error) | Status (PASS/FAILED) | Priority | Severity
-- Spec di `tests/*.spec.ts` (+ sidecar `.cases.json`), bisa dilihat, di-run per file/semua, dihapus. Hasil run terakhir persisten (`tests/.last-run.json`) sehingga kolom Status tetap terisi walau run dari chat. Run manual: `npx playwright test`
-- Batas langkah agent 20/run; kalau mentok, UI tampilkan peringatan jujur (bukan diam)
+- Multi-session history with automatic titles
+- Draft persistence per session
+- Text-file attachments and drag-and-drop for supported text formats
+- Copy, edit, regenerate, retry, stop, and jump-to-latest controls
+- Main-agent and sub-agent indicators
+- Live activity summaries based on real tools and selectors
+- Test plan and test-case artifact previews
+- Screenshots with a lightbox viewer
 
-## Kepribadian (`SOUL.md`) & Memory (`MEMORY.md`)
+For a QA test plan request, the agent explores only as much as needed, creates a Markdown test-plan document, runs a quality gate, and reports the saved artifact. Detailed test cases are stored separately as `.cases.json` when requested.
 
-- **`SOUL.md`** (root): nama, vibe, gaya bahasa, prinsip menjawab ala Hermes. Dibaca live tiap request — edit file langsung ngefek tanpa rebuild
-- **`MEMORY.md`** (root): ingatan jangka panjang. Faray menerima isinya tiap request + menyimpan via `memory_save` / menghapus via `memory_forget`. Pola password/API key/token **ditolak otomatis** (diarahkan ke `/settings`). Kapasitas 100 fakta, kelola di `/memory` (ikon otak di topbar)
+## Skills
+
+FarayAgent supports two skill sources:
+
+### `.skills/`
+
+Skills installed from the in-app `/skills` page. The page searches `skills.sh`, shows install counts and source links, and stores selected `SKILL.md` files locally.
+
+### `.agents/skills/`
+
+Skills installed with the `npx skills add` CLI for OpenCode and other agent ecosystems. Only audited, allowlisted skills are loaded by FarayAgent:
+
+- `playwright-best-practices`
+- `playwright-explore-website`
+- `playwright-stealth-verify`
+
+Installed skills are treated as untrusted reference instructions. They cannot add tools, grant permissions, override the system prompt, or bypass QA and security rules. High-risk skills are not loaded automatically.
+
+Example installation:
+
+```bash
+npx skills add https://github.com/currents-dev/playwright-best-practices-skill --skill playwright-best-practices --agent opencode --yes
+```
+
+Review every external skill and its security assessment before enabling it. A Vercel OIDC token is not required for local skills usage; the app falls back to a curated catalog and GitHub `SKILL.md` retrieval when the public `skills.sh` API returns `401`.
+
+## Memory
+
+`MEMORY.md` is loaded into the system prompt on every request. It is intended for durable preferences, public demo-site facts, important URLs, and robust locators. Passwords, API keys, tokens, and real secrets are rejected automatically.
 
 ## API
 
-- `POST /api/chat/stream` — SSE: `init { runId }`, `status { label }`, `shot { image, url }`, `done { text, toolCalls, screenshots, usage, model, provider, capped }`, `aborted {}`, `error { error }`
-- `POST /api/chat` — non-streaming: `{ messages, provider, model, apiKey, baseUrl }`
-- `POST /api/chat/cancel` — `{ runId }`
-- `POST /api/models` — `{ provider, apiKey, baseUrl }` → `{ models, source: "live" }`
-- `GET /api/browser` — `{ running, url, playwright }`
-- `POST /api/browser` — `{ action: "navigate" | "screenshot" | "text" | "snapshot" | "click" | "type" | "back" | "close", ... }`
-- `GET /api/tests` — `{ tests, lastRun }` · `POST /api/tests` — `{ action: "get" | "delete" | "run" | "cases", file? }`
-- `GET /api/memory` · `POST /api/memory` — `{ action: "save" | "forget", fact? | query? }`
+- `POST /api/chat/stream` — SSE chat stream with status, screenshot, artifact, done, aborted, and error events
+- `POST /api/chat` — non-streaming chat fallback
+- `POST /api/chat/cancel` — cancel an active run
+- `POST /api/models` — load live models from a configured provider
+- `GET|POST /api/browser` — manual browser control
+- `GET|POST /api/memory` — list, save, and forget memory facts
+- `GET|POST /api/logs` — read and clear tool logs
+- `GET|POST /api/skills` — search, install, and remove skills
+- `GET|POST /api/tests` — list, read, delete, and run Playwright specs
 
-## Struktur proyek
+## Project Structure
 
+```text
+SOUL.md, MEMORY.md             Agent personality and durable memory
+src/app/page.tsx               Landing page
+src/app/chat/page.tsx          Chat route
+src/app/settings/page.tsx      Provider and browser settings
+src/app/memory/page.tsx        Memory management
+src/app/logs/page.tsx          Tool-log viewer
+src/app/skills/page.tsx        skills.sh skill manager
+src/app/api/                   Chat, browser, memory, logs, skills, and test APIs
+src/components/Chat.tsx        Chat UI, stream reader, artifacts, and activity
+src/lib/agent.ts               AI tools and test-plan schemas
+src/lib/providers.ts            Providers and the English QA system prompt
+src/lib/skills.ts               skills.sh client and local skill loader
+src/lib/specs.ts               Spec, test-case, artifact, and quality-gate storage
+src/lib/soul.ts                 Prompt composition for soul, rules, memory, and skills
+tests/                          Playwright specs and generated test-case artifacts
 ```
-SOUL.md MEMORY.md (root — kepribadian & ingatan, live-reload)
-src/
-  app/
-    page.tsx                 Chat
-    settings/page.tsx        Provider / key / base URL / model + tes browser
-    tests/page.tsx           Daftar spec + generator + tabel case + run
-    memory/page.tsx          Daftar ingatan
-    api/chat/route.ts        Non-streaming (fallback)
-    api/chat/stream/route.ts SSE agent loop (maks 20 langkah)
-    api/chat/cancel/route.ts Interrupt run
-    api/browser/route.ts     Kontrol Playwright manual
-    api/models/route.ts      Daftar model live dari provider
-    api/tests/route.ts       Kelola + jalankan spec
-    api/memory/route.ts      Kelola ingatan
-  components/Chat.tsx        UI chat (session, stream reader, preview)
-  lib/
-    browser.ts               Singleton Chromium + aksi (dengan verifikasi isi)
-    agent.ts                 Tools AI (browser_* + test_* + memory_*)
-    agent-status.ts          Label status (aman untuk client)
-    specs.ts                 Simpan/baca/jalankan spec + test plan + last-run
-    runs.ts                  Registry run + cancel flag
-    providers.ts             Provider, model default, system prompt aturan
-    soul.ts                  Komposisi SOUL + rules + MEMORY
-    store.ts                 Persistensi localStorage (settings, sesi)
-tests/                       Spec + .cases.json + .last-run.json (hasil)
+
+## Verification
+
+```bash
+npx tsc --noEmit
+npm run lint
+npm run build
 ```
+
+The build may report existing Turbopack warnings for dynamic filesystem access used by the browser sandbox and artifact routes.

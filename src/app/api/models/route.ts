@@ -58,22 +58,22 @@ export async function POST(req: Request) {
     };
     const { provider, apiKey, baseUrl = "" } = body;
     if (provider !== "openai" && provider !== "anthropic") {
-      return NextResponse.json({ error: "provider tidak dikenal" }, { status: 400 });
+      return NextResponse.json({ error: "unknown provider" }, { status: 400 });
     }
     if (!apiKey?.trim()) {
-      return NextResponse.json({ error: "API key wajib diisi" }, { status: 400 });
+      return NextResponse.json({ error: "API key is required" }, { status: 400 });
     }
     const models =
       provider === "openai"
         ? await listOpenAI(baseUrl, apiKey.trim())
         : await listAnthropic(baseUrl, apiKey.trim());
     if (!models.length) {
-      return NextResponse.json({ error: "tidak ada model ditemukan" }, { status: 502 });
+      return NextResponse.json({ error: "no models found" }, { status: 502 });
     }
     return NextResponse.json({ models, source: "live" });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "gagal memuat model" },
+      { error: e instanceof Error ? e.message : "failed to load models" },
       { status: 502 }
     );
   }

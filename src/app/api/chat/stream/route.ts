@@ -4,7 +4,6 @@ import { getModel, PROVIDERS, ProviderId } from "@/lib/providers";
 import {
   getBrowserTools,
   statusLabel,
-  THINKING_STATUS,
 } from "@/lib/agent";
 import { getSystemPrompt } from "@/lib/soul";
 import * as browser from "@/lib/browser";
@@ -18,6 +17,23 @@ import {
 
 export const maxDuration = 300;
 const MAX_STEPS = 30;
+
+function thinkingFor(toolName?: string, input?: unknown) {
+  const values = typeof input === "object" && input ? input as Record<string, unknown> : {};
+  const target = typeof values.url === "string" ? ` ${values.url}` : " the current target";
+  const selector = typeof values.selector === "string" ? ` ${values.selector}` : " the discovered element";
+  switch (toolName) {
+    case "browser_navigate": return `Opening${target} to start the test flow.`;
+    case "browser_snapshot": return "Inspecting the page structure to find stable elements and locators.";
+    case "browser_get_text": return "Checking visible text to validate the page state.";
+    case "browser_click": return `Testing a click on${selector} to observe state or navigation changes.`;
+    case "browser_type": return `Filling${selector} to continue the test scenario.`;
+    case "browser_screenshot": return "Capturing visual evidence for the report.";
+    case "browser_go_back": return "Going back one page to verify the previous navigation path.";
+    case "browser_close": return "Closing the browser after the test step is complete.";
+    default: return "Choosing the next QA action from the latest observation.";
+  }
+}
 
 // POST /api/chat/stream — SSE. Event:
 //   status { label }   → tahap kerja agent (real-time, dari tool yang dieksekusi)
@@ -34,7 +50,7 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return Response.json({ error: "body tidak valid" }, { status: 400 });
+    return Response.json({ error: "invalid request body" }, { status: 400 });
   }
 
   const {
@@ -46,10 +62,10 @@ export async function POST(req: NextRequest) {
   } = body;
 
   if (!messages?.length) {
-    return Response.json({ error: "messages kosong" }, { status: 400 });
+    return Response.json({ error: "messages cannot be empty" }, { status: 400 });
   }
   if (!PROVIDERS[provider]) {
-    return Response.json({ error: "provider tidak dikenal" }, { status: 400 });
+    return Response.json({ error: "unknown provider" }, { status: 400 });
   }
 
   const chosenModel = model || PROVIDERS[provider].models[0];
@@ -63,7 +79,7 @@ export async function POST(req: NextRequest) {
     llm = getModel(provider, chosenModel, apiKey, baseUrl);
   } catch (e) {
     return Response.json(
-      { error: e instanceof Error ? e.message : "config model gagal" },
+      { error: e instanceof Error ? e.message : "model configuration failed" },
       { status: 400 }
     );
   }
@@ -84,17 +100,17 @@ export async function POST(req: NextRequest) {
       try {
         const delegateTask = async (task: string) => {
           if (isCancelled(runId)) throw new Error(RUN_CANCELLED);
-          send("status", { label: "Delegating QA subtask…" });
+           send("status", { label: "Delegating QA subtask…", thinking: "Memecah pekerjaan browser menjadi subtask QA yang lebih kecil." });
           const subTools = getBrowserTools(
-            (toolName, input) => send("status", { label: `Sub-agent: ${statusLabel(toolName, input)}` }),
+             (toolName, input) => send("status", { label: `Sub-agent: ${statusLabel(toolName, input)}`, thinking: thinkingFor(toolName, input), agent: "sub" }),
             () => isCancelled(runId)
           );
           const subResult = await generateText({
             model: llm,
             system:
-              "Kamu adalah sub-agent QA. Kerjakan hanya subtask yang diberikan. " +
-              "Eksplorasi secukupnya, maksimal 8 langkah tool, lalu kembalikan hasil ringkas dan faktual ke agent utama. " +
-              "Jangan mendelegasikan subtask lagi.",
+               "You are a QA sub-agent. Work only on the assigned subtask. " +
+               "Explore briefly, use at most 8 tool steps, then return a concise factual result to the main agent. " +
+               "Do not delegate again.",
             messages: [{ role: "user", content: task }],
             tools: subTools,
             stopWhen: stepCountIs(8),
@@ -108,7 +124,7 @@ export async function POST(req: NextRequest) {
 
         const tools = getBrowserTools(
           (toolName, input) => {
-            send("status", { label: statusLabel(toolName, input) });
+             send("status", { label: statusLabel(toolName, input), thinking: thinkingFor(toolName, input), agent: "main" });
           },
           () => isCancelled(runId),
           delegateTask
@@ -120,6 +136,7 @@ export async function POST(req: NextRequest) {
         }));
         const toolCalls: { tool: string; input: unknown }[] = [];
         const screenshots: { url: string; image: string }[] = [];
+        const artifacts: { kind: string; file: string; meta: Record<string, unknown> }[] = [];
         let fullText = "";
         let usage: unknown = null;
         let lastShotUrl: string | null = null;
@@ -132,8 +149,7 @@ export async function POST(req: NextRequest) {
             send("aborted", {});
             return;
           }
-          if (i > 0) send("status", { label: THINKING_STATUS });
-          const result = await generateText({
+           const result = await generateText({
             model: llm,
             system: getSystemPrompt({ provider, model: chosenModel, baseUrl }),
             messages: modelMessages,
@@ -147,8 +163,14 @@ export async function POST(req: NextRequest) {
           for (const tc of step?.toolCalls ?? []) {
             toolCalls.push({ tool: tc.toolName, input: tc.input });
           }
-          for (const tr of step?.toolResults ?? []) {
-            const out = tr.output as unknown;
+           for (const tr of step?.toolResults ?? []) {
+             const out = tr.output as unknown;
+             if (out && typeof out === "object" && "saved" in (out as Record<string, unknown>)) {
+               const result = out as Record<string, unknown>;
+               const file = String(result.saved);
+               const kind = file.endsWith(".md") ? "Test Plan Document" : file.endsWith(".cases.json") ? "Test Cases" : "Automation";
+               artifacts.push({ kind, file, meta: result });
+             }
             if (
               out &&
               typeof out === "object" &&
@@ -196,7 +218,8 @@ export async function POST(req: NextRequest) {
               ? "Agent mencapai batas langkah sebelum menyelesaikan ringkasan. Lanjutkan dari eksplorasi terakhir atau pecah permintaan menjadi area yang lebih kecil."
               : "Tool selesai, tetapi model tidak mengirim ringkasan."),
           toolCalls,
-          screenshots,
+           screenshots,
+           artifacts,
           usage,
           model: chosenModel,
           provider,

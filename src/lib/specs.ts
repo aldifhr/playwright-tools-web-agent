@@ -39,11 +39,90 @@ export type RunSummary = {
   error?: string;
 };
 
+export type QaPlanDocument = {
+  projectName: string;
+  testerName: string;
+  date: string;
+  version: string;
+  objective: string;
+  inScope: string[];
+  outOfScope: string[];
+  testStrategy: string[];
+  deliverables: string[];
+  environment: { key: string; value: string }[];
+  roles: { role: string; name: string; responsibility: string }[];
+  schedule: { event: string; startDate: string; endDate: string }[];
+  risks: { risk: string; mitigation: string }[];
+  approval: { name: string; role: string; signature: string }[];
+};
+
+export async function savePlanDocument(file: string, plan: QaPlanDocument) {
+  const safe = basename(String(file ?? "").trim()).replace(/\.md$/i, "") || "test-plan";
+  if (!/^[a-zA-Z0-9-_]+$/.test(safe)) throw new Error("invalid test plan filename");
+  const bullet = (items: string[]) => items.length ? items.map((item) => `- ${item}`).join("\n") : "- Tidak ditentukan";
+  const table = (headers: string[], rows: string[][]) => [
+    `| ${headers.join(" | ")} |`,
+    `| ${headers.map(() => "---").join(" | ")} |`,
+    ...rows.map((row) => `| ${row.join(" | ")} |`),
+  ].join("\n");
+  const content = [
+    `# ${plan.projectName || "QA Test Plan"}`,
+    "",
+    "## 1. Project Information",
+    table(["Field", "Value"], [["Project Name", plan.projectName], ["Tester Name", plan.testerName], ["Date", plan.date], ["Version", plan.version]]),
+    "",
+    "## 2. Objective",
+    plan.objective,
+    "",
+    "## 3. Scope of Testing",
+    "### In Scope",
+    bullet(plan.inScope),
+    "",
+    "### Out of Scope",
+    bullet(plan.outOfScope),
+    "",
+    "## 4. Test Strategy",
+    bullet(plan.testStrategy),
+    "",
+    "## 5. Test Deliverables",
+    bullet(plan.deliverables),
+    "",
+    "## 6. Test Environment",
+    table(["Environment", "Value"], plan.environment.map((item) => [item.key, item.value])),
+    "",
+    "## 7. Roles & Responsibilities",
+    table(["Role", "Name", "Responsibility"], plan.roles.map((item) => [item.role, item.name, item.responsibility])),
+    "",
+    "## 8. Schedule",
+    table(["Event", "Start Date", "End Date"], plan.schedule.map((item) => [item.event, item.startDate, item.endDate])),
+    "",
+    "## 9. Risk & Mitigation",
+    table(["Risk", "Mitigation"], plan.risks.map((item) => [item.risk, item.mitigation])),
+    "",
+    "## 10. Approval",
+    table(["Name", "Role", "Signature"], plan.approval.map((item) => [item.name, item.role, item.signature])),
+    "",
+  ].join("\n");
+  await fs.mkdir(DIR, { recursive: true });
+  const saved = `${safe}.md`;
+  await fs.writeFile(join(DIR, saved), content, "utf-8");
+  const tbdCount = (content.match(/\bTBD\b/gi) ?? []).length;
+  const missingFields = [
+    ["projectName", plan.projectName], ["testerName", plan.testerName], ["date", plan.date],
+    ["version", plan.version], ["objective", plan.objective], ["inScope", plan.inScope.length],
+    ["outOfScope", plan.outOfScope.length], ["testStrategy", plan.testStrategy.length],
+    ["deliverables", plan.deliverables.length], ["environment", plan.environment.length],
+    ["roles", plan.roles.length], ["schedule", plan.schedule.length], ["risks", plan.risks.length],
+    ["approval", plan.approval.length],
+  ].filter(([, value]) => !value).map(([field]) => field);
+  return { saved, sections: 10, projectName: plan.projectName, qualityGate: { complete: tbdCount === 0 && missingFields.length === 0, tbdCount, missingFields, fileWritten: true } };
+}
+
 export function sanitizeFile(name: string): string {
   const base = basename(String(name ?? "").trim());
   if (!/^[a-zA-Z0-9-_]+(\.spec\.ts)?$/.test(base)) {
     throw new Error(
-      "nama file tidak valid — pakai huruf/angka/-/_ dan akhiran .spec.ts"
+      "invalid filename — use letters, numbers, hyphens, underscores, and the .spec.ts suffix"
     );
   }
   return base.endsWith(".spec.ts") ? base : `${base}.spec.ts`;
@@ -75,7 +154,7 @@ export async function saveSpec(
   content: string
 ): Promise<{ saved: string; lines: number }> {
   const safe = sanitizeFile(file);
-  if (!content || !content.trim()) throw new Error("isi test kosong");
+  if (!content || !content.trim()) throw new Error("test content cannot be empty");
   if (content.length > MAX_CONTENT) throw new Error("isi test terlalu besar");
   if (!content.includes("@playwright/test")) {
     throw new Error("spec harus import dari @playwright/test");
@@ -121,9 +200,9 @@ export async function readCases(file: string): Promise<TestCase[]> {
 export async function saveCases(
   file: string,
   cases: TestCase[]
-): Promise<{ saved: string; count: number }> {
+): Promise<{ saved: string; count: number; ids: string[]; areas: Record<string, number>; qualityGate: { complete: boolean; tbdCount: number; fileWritten: boolean } }> {
   if (!Array.isArray(cases) || !cases.length) {
-    throw new Error("cases kosong");
+    throw new Error("test cases cannot be empty");
   }
   if (cases.length > 50) throw new Error("maksimal 50 case");
   const clean = cases.map((c) => ({
@@ -139,12 +218,24 @@ export async function saveCases(
     severity: ["High", "Medium", "Low"].includes(c.severity) ? c.severity : "Medium",
   }));
   if (clean.some((c) => !c.id || !c.title || !c.steps.length || !c.expected)) {
-    throw new Error("tiap case wajib ada id, title, steps, expected");
+    throw new Error("each case requires an id, title, steps, and expected result");
   }
   await fs.mkdir(DIR, { recursive: true });
   const name = casesFile(file);
   await fs.writeFile(join(DIR, name), JSON.stringify(clean, null, 2) + "\n", "utf-8");
-  return { saved: name, count: clean.length };
+  const areas = clean.reduce<Record<string, number>>((summary, testCase) => {
+    summary[testCase.area] = (summary[testCase.area] ?? 0) + 1;
+    return summary;
+  }, {});
+  const serialized = JSON.stringify(clean);
+  const tbdCount = (serialized.match(/\bTBD\b/gi) ?? []).length;
+  return {
+    saved: name,
+    count: clean.length,
+    ids: clean.map((testCase) => testCase.id),
+    areas,
+    qualityGate: { complete: tbdCount === 0, tbdCount, fileWritten: true },
+  };
 }
 
 export async function deleteSpec(file: string): Promise<{ deleted: string }> {

@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Playwright Chat AI — AI Browser Agent",
-  description: "Chat AI multi-provider (OpenAI, Anthropic) dengan Playwright browser agent",
+  description: "Multi-provider AI chat with a Playwright browser agent",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -61,12 +61,12 @@ export default function MemoryPage() {
         body: JSON.stringify({ action: "save", fact }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Gagal menyimpan");
+      if (!r.ok) throw new Error(d.error || "Failed to save");
       setInput("");
-      success("Fakta disimpan", fact.slice(0, 40));
+      success("Fact saved", fact.slice(0, 40));
       refresh();
     } catch (e) {
-      showError("Error", e instanceof Error ? e.message : "Gagal menyimpan");
+      showError("Error", e instanceof Error ? e.message : "Failed to save");
     } finally {
       setBusy(false);
     }
@@ -81,11 +81,11 @@ export default function MemoryPage() {
         body: JSON.stringify({ action: "forget", query }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Gagal menghapus");
-      success("Fakta dihapus", "Ingatan diperbarui");
+      if (!r.ok) throw new Error(d.error || "Failed to delete");
+      success("Fact deleted", "Memory updated");
       refresh();
     } catch (e) {
-      showError("Error", e instanceof Error ? e.message : "Gagal menghapus");
+      showError("Error", e instanceof Error ? e.message : "Failed to delete");
     }
   }
 
@@ -100,7 +100,7 @@ export default function MemoryPage() {
           href="/chat"
           className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10 hover:text-white"
         >
-          <ArrowLeft size={15} /> Kembali ke chat
+          <ArrowLeft size={15} />
         </Link>
 
         <motion.div
@@ -115,7 +115,7 @@ export default function MemoryPage() {
           <div>
             <h1 className="text-xl font-bold tracking-tight">Memory</h1>
             <p className="text-xs text-zinc-500">
-              Ingatan jangka panjang Faray • tersimpan di MEMORY.md ({facts.length}/100)
+               FarayAgent long-term memory • stored in MEMORY.md ({facts.length}/100)
             </p>
           </div>
         </motion.div>
@@ -133,7 +133,7 @@ export default function MemoryPage() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Tambah fakta… mis. User lebih suka jawaban tabel"
+             placeholder="Add a fact… e.g. User prefers table-based answers"
             className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-white/40"
           />
           <button
@@ -160,9 +160,9 @@ export default function MemoryPage() {
                 className="grid place-items-center rounded-2xl border border-dashed border-white/15 py-14 text-center"
               >
                 <Brain size={26} className="text-zinc-700" />
-                <p className="mt-3 text-sm font-medium text-zinc-400">Belum ada ingatan</p>
+                <p className="mt-3 text-sm font-medium text-zinc-400">No memories yet</p>
                 <p className="mt-1 max-w-60 text-xs text-zinc-600">
-                  Faray otomatis mengingat fakta penting dari chat — atau tambah manual di atas
+                   FarayAgent remembers important facts from chat automatically — or add one manually above
                 </p>
               </motion.div>
             )}
@@ -181,7 +181,7 @@ export default function MemoryPage() {
                 <p className="min-w-0 flex-1 text-sm text-zinc-200">{f}</p>
                 <button
                   onClick={() => forget(f)}
-                  title="Lupakan"
+                   title="Forget"
                   className="shrink-0 rounded-lg p-1.5 text-zinc-600 opacity-0 transition group-hover:opacity-100 hover:bg-white/10 hover:text-white"
                 >
                   <Trash2 size={13} />
@@ -192,7 +192,7 @@ export default function MemoryPage() {
         </motion.div>
 
         <p className="mt-4 text-[11px] text-zinc-600">
-          Jangan simpan password / API key / token di sini — itu milik /settings.
+           Do not store passwords, API keys, or tokens here — use /settings instead.
         </p>
       </motion.div>
     </div>

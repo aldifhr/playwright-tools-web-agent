@@ -54,12 +54,12 @@ function parseCommand(raw: string): string[] {
         token = "";
       }
     } else if (/[|;&<>]/.test(char)) {
-      throw new Error("shell operators tidak diizinkan");
+      throw new Error("shell operators are not allowed");
     } else {
       token += char;
     }
   }
-  if (quote) throw new Error("quote command tidak lengkap");
+  if (quote) throw new Error("unterminated command quote");
   if (token) args.push(token);
   return args;
 }
@@ -230,12 +230,12 @@ export async function killBrowser() {
 
 export async function bash(command: string) {
   const raw = String(command ?? "").trim();
-  if (!raw || raw.length > 500) throw new Error("command kosong atau terlalu panjang");
+  if (!raw || raw.length > 500) throw new Error("command is empty or too long");
   // Do not invoke a shell: metacharacters and pipelines are intentionally rejected.
   const parts = parseCommand(raw);
   const executable = parts.shift()?.toLowerCase() ?? "";
   if (!ALLOWED_COMMANDS.has(executable)) {
-    throw new Error(`Command '${executable}' tidak diizinkan`);
+    throw new Error(`Command '${executable}' is not allowed`);
   }
   console.info(`[browser_bash] ${raw}`);
   return new Promise<{ exitCode: number | null; stdout: string; stderr: string }>((resolvePromise, reject) => {
@@ -270,16 +270,16 @@ export async function bash(command: string) {
 export async function readFile(path: string, limit = MAX_READ) {
   const root = process.cwd();
   const requested = String(path ?? "").trim();
-  if (!requested) throw new Error("path wajib diisi");
+  if (!requested) throw new Error("path is required");
   const candidate = resolve(root, requested);
   const realPath = await fs.realpath(candidate).catch(() => {
-    throw new Error("file tidak ditemukan");
+    throw new Error("file not found");
   });
   const allowed =
     ALLOWED_READ_DIRS.some((dir) => inside(resolve(root, dir), realPath)) ||
     ALLOWED_READ_FILES.some((file) => realPath === resolve(root, file));
   if (!allowed) {
-    throw new Error("path tidak diizinkan; hanya tests/, test-results/, logs/, src/, SOUL.md, dan MEMORY.md");
+    throw new Error("path is not allowed; only approved project paths may be read");
   }
   const safeLimit = Math.max(1, Math.min(Number(limit) || MAX_READ, MAX_READ));
   const content = await fs.readFile(realPath, "utf8");

@@ -34,8 +34,8 @@ import {
 } from "@/components/ui/select";
 
 const META: Record<ProviderId, { icon: typeof Sparkles; hint: string }> = {
-  openai: { icon: Sparkles, hint: "GPT • butuh API key" },
-  anthropic: { icon: Brain, hint: "Claude • butuh API key" },
+  openai: { icon: Sparkles, hint: "GPT • API key required" },
+  anthropic: { icon: Brain, hint: "Claude • API key required" },
 };
 
 const section = {
@@ -77,15 +77,15 @@ export default function SettingsPage() {
     setLiveModels(null);
     setModelsError("");
     patch({ provider: p, model: PROVIDERS[p].models[0] });
-    success("Provider Diubah", PROVIDERS[p].label);
+    success("Provider changed", PROVIDERS[p].label);
   }
 
   async function loadModels(manual: boolean) {
     const key = settings.keys[settings.provider]?.trim();
     if (!key) {
       if (manual) {
-        setModelsError("Isi API key dulu");
-        showError("Error", "Isi API key dulu");
+         setModelsError("Enter an API key first");
+         showError("Error", "Enter an API key first");
       }
       return;
     }
@@ -102,20 +102,20 @@ export default function SettingsPage() {
         }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Gagal memuat model");
+       if (!r.ok) throw new Error(d.error || "Failed to load models");
       setLiveModels(d.models);
       setModelsError("");
-      if (manual) success("Model Dimuat", `${d.models.length} model tersedia`);
+       if (manual) success("Models loaded", `${d.models.length} models available`);
       // kalau model tersimpan tidak ada di daftar live, pakai yang pertama
       if (!d.models.includes(settings.model)) {
         patch({ model: d.models[0] });
       }
     } catch (e) {
       setLiveModels(null);
-      const msg = e instanceof Error ? e.message : "Gagal";
+       const msg = e instanceof Error ? e.message : "Failed";
       if (manual) {
         setModelsError(msg);
-        showError("Error Memuat Model", msg);
+         showError("Model loading error", msg);
       }
     } finally {
       setModelsLoading(false);
@@ -168,20 +168,20 @@ export default function SettingsPage() {
         body: JSON.stringify({ action: "navigate", url: "https://example.com" }),
       });
       const nd = await n.json();
-      if (!n.ok) throw new Error(nd.error || "Navigasi gagal");
+       if (!n.ok) throw new Error(nd.error || "Navigation failed");
       const s = await fetch("/api/browser", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "screenshot" }),
       });
       const sd = await s.json();
-      if (!s.ok) throw new Error(sd.error || "Screenshot gagal");
+       if (!s.ok) throw new Error(sd.error || "Screenshot failed");
       setTest({ title: nd.title || "Example Domain", url: nd.url, image: sd.image });
-      success("Browser Test Sukses", "Chromium berhasil navigate dan screenshot");
+       success("Browser test passed", "Chromium navigated and captured a screenshot successfully");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Tes gagal";
+       const msg = e instanceof Error ? e.message : "Test failed";
       setTestError(msg);
-      showError("Browser Test Gagal", msg);
+       showError("Browser test failed", msg);
     } finally {
       setTesting(false);
     }
@@ -200,8 +200,8 @@ export default function SettingsPage() {
       <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
         <motion.div variants={section} initial="hidden" animate="show">
           <Button variant="outline" size="sm" asChild>
-            <Link href="/chat">
-              <ArrowLeft size={15} /> Kembali ke chat
+               <Link href="/chat">
+               <ArrowLeft size={15} /> Back to chat
             </Link>
           </Button>
         </motion.div>
@@ -217,7 +217,7 @@ export default function SettingsPage() {
             <Bot size={22} className="text-black" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight">Pengaturan</h1>
+             <h1 className="text-xl font-bold tracking-tight">Settings</h1>
             <AnimatePresence mode="wait">
               {saved ? (
                 <motion.p
@@ -227,7 +227,7 @@ export default function SettingsPage() {
                   exit={{ opacity: 0 }}
                   className="flex items-center gap-1.5 text-xs text-zinc-400"
                 >
-                  <Check size={12} className="text-white" /> Tersimpan otomatis
+                   <Check size={12} className="text-white" /> Saved automatically
                 </motion.p>
               ) : (
                 <motion.p
@@ -237,7 +237,7 @@ export default function SettingsPage() {
                   exit={{ opacity: 0 }}
                   className="text-xs text-zinc-500"
                 >
-                  Model AI & koneksi • tersimpan lokal
+                   AI model & connection • stored locally
                 </motion.p>
               )}
             </AnimatePresence>
@@ -252,7 +252,7 @@ export default function SettingsPage() {
           transition={{ delay: 0.1 }}
         >
           <Label className="mt-8 mb-2 text-[11px] font-semibold tracking-widest text-zinc-500 uppercase">
-            Provider AI
+             AI Provider
           </Label>
           <div className="grid grid-cols-2 gap-2">
             {(Object.keys(PROVIDERS) as ProviderId[]).map((p) => {
@@ -301,10 +301,10 @@ export default function SettingsPage() {
               }
               className="dark:bg-white/5 border-white/10 pr-10 text-white placeholder:text-zinc-600"
             />
-            <button
+              <button
               onClick={() => setShowKey(!showKey)}
               className="absolute top-1/2 right-3 -translate-y-1/2 text-zinc-500 hover:text-white"
-              aria-label={showKey ? "Sembunyikan key" : "Tampilkan key"}
+               aria-label={showKey ? "Hide key" : "Show key"}
             >
               {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
@@ -330,7 +330,7 @@ export default function SettingsPage() {
             className="dark:bg-white/5 border-white/10 text-white placeholder:text-zinc-600"
           />
           <p className="mt-1.5 text-[11px] text-zinc-600">
-            Kosongkan untuk memakai default. Daftar model di bawah terisi otomatis dari Base URL + API key ini.
+             Leave blank to use the default. The model list below loads automatically from this base URL and API key.
           </p>
         </motion.div>
 
@@ -347,10 +347,10 @@ export default function SettingsPage() {
             </Label>
             {modelsLoading && <Loader2 size={12} className="animate-spin text-zinc-400" />}
             {liveModels?.length ? (
-              <Badge>{liveModels.length} live dari API</Badge>
+                 <Badge>{liveModels.length} live from API</Badge>
             ) : (
               <Badge variant="outline" className="text-zinc-500">
-                bawaan
+                 default
               </Badge>
             )}
             <Button
@@ -360,12 +360,12 @@ export default function SettingsPage() {
               disabled={modelsLoading || !apiKey.trim()}
               className="ml-auto h-7 text-[11px]"
             >
-              <RefreshCw size={12} /> Muat ulang
+               <RefreshCw size={12} /> Refresh
             </Button>
           </div>
           <Select value={model} onValueChange={(v) => patch({ model: v })}>
-            <SelectTrigger className="dark:bg-white/5 border-white/10 w-full py-5 text-white">
-              <SelectValue placeholder="Pilih model" />
+           <SelectTrigger className="dark:bg-white/5 border-white/10 w-full py-5 text-white">
+               <SelectValue placeholder="Choose a model" />
             </SelectTrigger>
             <SelectContent>
               {options.map((m) => (
@@ -376,14 +376,14 @@ export default function SettingsPage() {
             </SelectContent>
           </Select>
           {modelsError ? (
-            <p className="mt-1.5 text-[11px] text-zinc-400">⚠ {modelsError} — memakai daftar bawaan.</p>
+             <p className="mt-1.5 text-[11px] text-zinc-400">⚠ {modelsError} — using the default list.</p>
           ) : !apiKey.trim() ? (
             <p className="mt-1.5 text-[11px] text-zinc-600">
-              Isi API key untuk memuat daftar model asli dari API.
+               Enter an API key to load the live model list from the API.
             </p>
           ) : null}
           <p className="mt-1.5 text-[11px] text-zinc-600">
-            Key hanya tersimpan di localStorage browser ini.
+              The key is stored only in this browser&apos;s localStorage.
           </p>
         </motion.div>
 
@@ -395,7 +395,7 @@ export default function SettingsPage() {
           transition={{ delay: 0.3 }}
         >
           <Label className="mt-8 mb-2 text-[11px] font-semibold tracking-widest text-zinc-500 uppercase">
-            Integrasi Playwright
+             Playwright Integration
           </Label>
           <Card className="glass border-white/10 py-4">
             <CardContent className="px-4">
@@ -409,7 +409,7 @@ export default function SettingsPage() {
                   className="ml-auto bg-white text-xs font-semibold text-black hover:bg-zinc-200"
                 >
                   {testing ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
-                  {testing ? "Membuka…" : "Tes buka example.com"}
+                   {testing ? "Opening…" : "Test example.com"}
                 </Button>
               </div>
               {testError && <p className="mt-2 text-xs text-zinc-300">⚠ {testError}</p>}
@@ -431,7 +431,7 @@ export default function SettingsPage() {
               </AnimatePresence>
               {!test && !testError && (
                 <p className="mt-2 text-xs text-zinc-600">
-                  Tes ini membuka example.com via Playwright lalu screenshot — tanpa perlu API key.
+                   This test opens example.com with Playwright and captures a screenshot — no API key required.
                 </p>
               )}
             </CardContent>

@@ -16,14 +16,14 @@ import {
   CircleAlert,
   ClipboardList,
   FileText,
-  FlaskConical,
   Globe,
   Loader2,
+  Copy,
+  Pencil,
   MessageSquare,
   MousePointerClick,
   Newspaper,
   PanelRight,
-  Play,
   Plus,
   RotateCcw,
   Send,
@@ -57,6 +57,8 @@ type Msg = {
   content: string;
   toolCalls?: { tool: string; input: unknown }[];
   screenshots?: { url: string; image: string }[];
+  artifacts?: { kind: string; file: string; meta: Record<string, unknown> }[];
+  thinking?: string[];
   model?: string;
   time?: string;
 };
@@ -65,39 +67,31 @@ const SUGGESTIONS = [
   {
     icon: TrendingUp,
     title: "Exploratory testing",
-    desc: "Explore saucedemo & list area yang bisa di-test",
+    desc: "Explore saucedemo and list testable areas",
     prompt:
-      "Buka https://www.saucedemo.com, login standard_user / secret_sauce, lalu eksplorasi dan list semua area/fitur yang bisa di-test",
+      "Open https://www.saucedemo.com, log in with standard_user / secret_sauce, then explore and list all testable areas and features",
   },
   {
     icon: Camera,
-    title: "Bug repro + bukti",
-    desc: "Ulangi langkah + screenshot tiap tahap",
+    title: "Bug repro + evidence",
+    desc: "Repeat the flow and capture screenshots at each stage",
     prompt:
-      "Buka https://www.saucedemo.com dan screenshot halaman login sebagai bukti awal",
+      "Open https://www.saucedemo.com and capture the login page as initial evidence",
   },
   {
     icon: Bitcoin,
-    title: "Smoke test cepat",
-    desc: "Login + tambah produk + cek badge cart",
+    title: "Quick smoke test",
+    desc: "Log in, add a product, and verify the cart badge",
     prompt:
-      "Smoke test saucedemo: login standard_user / secret_sauce, tambah 1 produk ke cart, verifikasi badge cart = 1",
+      "Run a saucedemo smoke test: log in with standard_user / secret_sauce, add one product to the cart, and verify the cart badge is 1",
   },
   {
     icon: Newspaper,
-    title: "Cari locator",
-    desc: "Selector robust untuk automation",
+    title: "Find locators",
+    desc: "Robust selectors for automation",
     prompt:
-      "Buka https://www.saucedemo.com dan berikan locator robust (data-test / getByRole) untuk form login",
+      "Open https://www.saucedemo.com and provide robust locators (data-test / getByRole) for the login form",
   },
-];
-
-const QA_TOOLS = [
-  { icon: Globe, label: "Exploratory test", prompt: "Buka URL yang saya berikan, eksplorasi sebagai QA, dan laporkan area yang bisa diuji." },
-  { icon: ClipboardList, label: "Buat test plan", prompt: "Buat test plan QA lengkap untuk fitur atau URL yang saya berikan. Simpan dengan test_plan." },
-  { icon: FlaskConical, label: "Buat test case", prompt: "Buat test case positif, negatif, dan boundary untuk fitur atau URL yang saya berikan." },
-  { icon: Play, label: "Jalankan test", prompt: "Jalankan test Playwright yang relevan, lalu laporkan PASS, FAIL, durasi, dan error." },
-  { icon: CircleAlert, label: "Review failure", prompt: "Review hasil test terakhir, analisis root cause failure, dan sarankan perbaikan." },
 ];
 
 const TOOL_META: Record<string, { icon: typeof Globe; label: string }> = {
@@ -145,10 +139,21 @@ export default function Chat() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusText, setStatusText] = useState(IDLE_STATUS);
+  const [thinkingText, setThinkingText] = useState("");
+  const [thinkingHistory, setThinkingHistory] = useState<string[]>([]);
+  const [thinkingOpen, setThinkingOpen] = useState(true);
+  const [progressStage, setProgressStage] = useState(0);
+  const [agentMode, setAgentMode] = useState<"main" | "sub">("main");
+  const [stopping, setStopping] = useState(false);
+  const [attachments, setAttachments] = useState<{ name: string; text: string }[]>([]);
+  const [showJump, setShowJump] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const autoScrollRef = useRef(true);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const sessionRef = useRef(0);
   const streamRef = useRef<AbortController | null>(null);
+  const thinkingHistoryRef = useRef<string[]>([]);
   const runIdRef = useRef<string | null>(null);
   const { error: showError } = useToast();
 
@@ -160,6 +165,7 @@ export default function Chat() {
   }
 
   async function stopRun() {
+    setStopping(true);
     const id = runIdRef.current;
     runIdRef.current = null;
     abortStream();
@@ -236,6 +242,22 @@ export default function Chat() {
   const apiKey = settings.keys[provider] ?? "";
   const baseUrl = settings.baseUrls[provider] ?? "";
 
+  useEffect(() => {
+    if (!hydrated || !activeId) return;
+    const timer = window.setTimeout(() => {
+      setInput(localStorage.getItem(`chat-draft:${activeId}`) ?? "");
+      setAttachments([]);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeId, hydrated]);
+
+  useEffect(() => {
+    if (hydrated && activeId) {
+      if (input) localStorage.setItem(`chat-draft:${activeId}`, input);
+      else localStorage.removeItem(`chat-draft:${activeId}`);
+    }
+  }, [activeId, hydrated, input]);
+
   function commitMessages(id: string, next: Msg[], userText?: string) {
     setSessions((prev) => {
       const list = prev.map((s) =>
@@ -244,7 +266,7 @@ export default function Chat() {
               ...s,
               messages: next,
               title:
-                s.title === "Chat baru" && userText
+                s.title === "New chat" && userText
                   ? titleFrom(userText)
                   : s.title,
               updatedAt: Date.now(),
@@ -288,8 +310,33 @@ export default function Chat() {
     el.style.height = Math.min(el.scrollHeight, 160) + "px";
   }
 
+  function scrollToLatest(behavior: ScrollBehavior = "smooth") {
+    autoScrollRef.current = true;
+    setShowJump(false);
+    bottomRef.current?.scrollIntoView({ behavior });
+  }
+
+  function handleFiles(files: FileList | File[]) {
+    const readable = Array.from(files).filter((file) =>
+      /text|json|javascript|typescript|xml|yaml|csv/.test(file.type) || /\.(txt|md|json|js|ts|tsx|jsx|xml|yaml|yml|csv|log)$/i.test(file.name)
+    );
+    readable.slice(0, 4).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => setAttachments((current) => [...current.filter((x) => x.name !== file.name), { name: file.name, text: String(reader.result ?? "") }]);
+      reader.readAsText(file);
+    });
+  }
+
+  function copyMessage(content: string) {
+    navigator.clipboard?.writeText(content).catch(() => {});
+  }
+
   async function send(text?: string) {
-    const content = (text ?? input).trim();
+    const draft = (text ?? input).trim();
+    const fileContext = attachments.length
+      ? "\n\nAttached files:\n" + attachments.map((file) => `--- ${file.name} ---\n${file.text}`).join("\n")
+      : "";
+    const content = (draft + fileContext).trim();
     if (!content || loading) return;
     const sess = sessionRef.current;
     const targetId = activeId;
@@ -299,12 +346,20 @@ export default function Chat() {
     const next: Msg[] = [...messages, { role: "user", content, time: now() }];
     commitMessages(targetId, next, content);
     setInput("");
+    setAttachments([]);
     if (taRef.current) taRef.current.style.height = "auto";
     setLoading(true);
+    setStopping(false);
+    setAgentMode("main");
     setStatusText(IDLE_STATUS);
-    requestAnimationFrame(() =>
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-    );
+    setThinkingText("");
+    setThinkingHistory([]);
+    thinkingHistoryRef.current = [];
+    setThinkingOpen(true);
+    setProgressStage(1);
+    requestAnimationFrame(() => {
+      if (autoScrollRef.current) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
     const ctrl = new AbortController();
     streamRef.current = ctrl;
     try {
@@ -322,7 +377,7 @@ export default function Chat() {
       });
       if (!res.ok || !res.body) {
         const d = await res.json().catch(() => null);
-        throw new Error(d?.error || "Request gagal");
+        throw new Error(d?.error || "Request failed");
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -332,6 +387,7 @@ export default function Chat() {
         text: string;
         toolCalls?: { tool: string; input: unknown }[];
         screenshots?: { url: string; image: string }[];
+        artifacts?: { kind: string; file: string; meta: Record<string, unknown> }[];
       } | null = null;
       for (;;) {
         const { done, value } = await reader.read();
@@ -351,22 +407,53 @@ export default function Chat() {
           } else if (ev === "status") {
             if (sessionRef.current !== sess) return;
             try {
-              const d = JSON.parse(dm) as { label?: string };
+              const d = JSON.parse(dm) as { label?: string; thinking?: string; agent?: "main" | "sub" };
               if (d.label) {
                 setStatusText(d.label);
-                requestAnimationFrame(() =>
-                  bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-                );
+                setAgentMode(d.agent ?? (/sub-agent|delegate|delegat/i.test(d.label) ? "sub" : "main"));
+                if (d.thinking) {
+                  setThinkingText(d.thinking);
+                  setThinkingHistory((current) => {
+                    const next = current.at(-1) === d.thinking ? current : [...current, d.thinking!].slice(-8);
+                    thinkingHistoryRef.current = next;
+                    return next;
+                  });
+                }
+                const label = d.label.toLowerCase();
+                const stage = /test|saving|save|run/.test(label)
+                  ? 3
+                  : /opening|scanning|reading|clicking|typing|screenshot|back|browser/.test(label)
+                    ? 2
+                    : /report|finish|complete/.test(label)
+                      ? 4
+                      : 0;
+                if (stage) setProgressStage((current) => Math.max(current, stage));
+                requestAnimationFrame(() => {
+                  if (autoScrollRef.current) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+                });
               }
             } catch {}
           } else if (ev === "done") {
-            finalData = JSON.parse(dm);
+            const completed = JSON.parse(dm) as {
+              text: string;
+              toolCalls?: { tool: string; input: unknown }[];
+              screenshots?: { url: string; image: string }[];
+              artifacts?: { kind: string; file: string; meta: Record<string, unknown> }[];
+            };
+            finalData = completed;
+            if (completed.toolCalls?.length || completed.artifacts?.length) {
+              setStatusText("Reporting");
+              const reportStep = "Browser actions are complete; compiling the report and checking saved artifacts.";
+              setThinkingText(reportStep);
+              thinkingHistoryRef.current = [...thinkingHistoryRef.current, reportStep].slice(-8);
+              setThinkingHistory(thinkingHistoryRef.current);
+            }
           } else if (ev === "aborted") {
             aborted = true;
             break;
           } else if (ev === "error") {
             const d = JSON.parse(dm) as { error?: string };
-            throw new Error(d.error || "Request gagal");
+            throw new Error(d.error || "Request failed");
           }
         }
         if (aborted) {
@@ -379,13 +466,16 @@ export default function Chat() {
       if (aborted) return; // di-interrupt user → berhenti diam-diam
       if (sessionRef.current !== sess) return; // user sudah ganti sesi → abaikan
       if (!finalData) throw new Error("Stream terputus");
+      setProgressStage(4);
       commitMessages(targetId, [
         ...next,
         {
           role: "assistant",
-          content: finalData.text || "(tidak ada jawaban)",
+          content: finalData.text || "(no response)",
           toolCalls: finalData.toolCalls,
-          screenshots: finalData.screenshots,
+           screenshots: finalData.screenshots,
+           artifacts: finalData.artifacts,
+           thinking: thinkingHistoryRef.current,
           model,
           time: now(),
         },
@@ -394,7 +484,7 @@ export default function Chat() {
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       if (sessionRef.current !== sess) return;
-      const msg = e instanceof Error ? e.message : "Gagal";
+      const msg = e instanceof Error ? e.message : "Failed";
       setError(msg);
       setLastFailedPrompt(content);
       showError("Chat Error", msg);
@@ -402,9 +492,10 @@ export default function Chat() {
       if (streamRef.current === ctrl) streamRef.current = null;
       runIdRef.current = null;
       if (sessionRef.current === sess) setLoading(false);
-      requestAnimationFrame(() =>
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-      );
+      if (sessionRef.current === sess) setStopping(false);
+      requestAnimationFrame(() => {
+        if (autoScrollRef.current) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
     }
   }
 
@@ -417,9 +508,8 @@ export default function Chat() {
     setError("");
     setExpanded({});
     setLoading(false);
-    requestAnimationFrame(() =>
-      bottomRef.current?.scrollIntoView({ behavior: "auto" })
-    );
+    setStopping(false);
+    requestAnimationFrame(() => scrollToLatest("auto"));
   }
 
   function newChat() {
@@ -459,17 +549,10 @@ export default function Chat() {
     }
     setError("");
     setLoading(false);
+    setStopping(false);
   }
 
   const PIcon = PROVIDER_META[provider].icon;
-  const status = statusText.toLowerCase();
-  const progressStage = status.includes("plan")
-    ? 1
-    : status.includes("open") || status.includes("scan") || status.includes("read") || status.includes("click") || status.includes("type") || status.includes("screenshot")
-      ? 2
-      : status.includes("test") || status.includes("save")
-        ? 3
-        : 1;
   const progressLabels = ["Planning", "Browsing", "Testing", "Reporting"];
 
   return (
@@ -491,7 +574,7 @@ export default function Chat() {
               <Bot size={20} className="text-black" />
             </div>
             <div>
-              <p className="text-sm font-bold tracking-tight text-white">Playwright AI</p>
+              <p className="text-sm font-bold tracking-tight text-white">FarayAgent</p>
               <p className="text-[11px] text-zinc-400 flex items-center gap-1">
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
                 Browser Agent • v1.0
@@ -510,26 +593,12 @@ export default function Chat() {
             onClick={newChat}
             className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black shadow-lg shadow-white/10 transition hover:bg-zinc-200 active:scale-[0.98]"
           >
-            <Plus size={16} /> Chat baru
+             <Plus size={16} /> New chat
           </button>
-
-          <p className="mt-6 mb-2 text-[11px] font-semibold tracking-widest text-zinc-500 uppercase">QA Tools</p>
-          <div className="grid grid-cols-2 gap-1.5">
-            {QA_TOOLS.map((tool) => (
-              <button
-                key={tool.label}
-                onClick={() => send(tool.prompt)}
-                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-left text-[11px] text-zinc-300 hover:border-white/25 hover:bg-white/10 hover:text-white"
-              >
-                <tool.icon size={13} className="shrink-0 text-zinc-400" />
-                <span className="truncate">{tool.label}</span>
-              </button>
-            ))}
-          </div>
 
           {/* daftar sesi */}
           <p className="mt-6 mb-2 text-[11px] font-semibold tracking-widest text-zinc-500 uppercase">
-            Sesi chat
+             Chat sessions
           </p>
           <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
             {sessions
@@ -558,7 +627,7 @@ export default function Chat() {
                         {s.title}
                       </p>
                       <p className="text-[10px] text-zinc-600">
-                        {s.messages.length} pesan • {fmtTime(s.updatedAt)}
+                        {s.messages.length} messages • {fmtTime(s.updatedAt)}
                       </p>
                     </div>
                     <button
@@ -566,7 +635,7 @@ export default function Chat() {
                         e.stopPropagation();
                         deleteSession(s.id);
                       }}
-                      title="Hapus sesi"
+                      title="Delete session"
                       className="shrink-0 rounded-lg p-1.5 text-zinc-600 opacity-0 transition group-hover:opacity-100 hover:bg-white/10 hover:text-white"
                     >
                       <Trash2 size={13} />
@@ -576,7 +645,7 @@ export default function Chat() {
               })}
             {sessions.length === 0 && (
               <p className="px-1 py-4 text-center text-xs text-zinc-600">
-                Belum ada sesi
+                 No sessions yet
               </p>
             )}
           </div>
@@ -601,7 +670,7 @@ export default function Chat() {
           )}
           <Link
             href="/settings"
-            title="Ubah model di Pengaturan"
+            title="Change model in Settings"
             className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pr-3 pl-1.5 text-xs text-white transition hover:border-white/30 hover:bg-white/10"
           >
             <span className="grid h-6 w-6 place-items-center rounded-full bg-white">
@@ -612,12 +681,23 @@ export default function Chat() {
             <SettingsIcon size={13} className="text-zinc-500" />
           </Link>
           <div className="ml-auto flex items-center gap-2">
+            <span className="hidden items-center gap-1.5 text-[10px] text-zinc-500 sm:flex" title={apiKey && baseUrl ? "Provider is ready" : "Complete the API key and base URL in Settings"}>
+              <span className={`h-1.5 w-1.5 rounded-full ${apiKey && baseUrl ? "bg-emerald-400" : "bg-amber-400"}`} />
+              {apiKey && baseUrl ? "Ready" : "Setup required"}
+            </span>
             <Link
               href="/memory"
               title="Memory"
               className="rounded-lg bg-white/8 p-2 text-zinc-400 hover:bg-white/15 hover:text-white"
             >
               <Brain size={16} />
+            </Link>
+            <Link
+              href="/skills"
+              title="Agent Skills"
+              className="rounded-lg bg-white/8 p-2 text-zinc-400 hover:bg-white/15 hover:text-white"
+            >
+              <Sparkles size={16} />
             </Link>
             <Link
               href="/logs"
@@ -632,7 +712,16 @@ export default function Chat() {
         <div className="flex min-h-0 flex-1">
           {/* chat column */}
           <main className="flex min-w-0 flex-1 flex-col">
-            <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
+            <div
+              ref={scrollRef}
+              onScroll={(event) => {
+                const el = event.currentTarget;
+                const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+                autoScrollRef.current = nearBottom;
+                setShowJump(!nearBottom && loading);
+              }}
+              className="relative flex-1 overflow-y-auto px-4 py-6 sm:px-8"
+            >
               <div className="mx-auto w-full max-w-2xl">
                 {messages.length === 0 ? (
                   <div className="animate-fade-up pt-6 text-center">
@@ -640,11 +729,11 @@ export default function Chat() {
                       <Sparkles size={28} className="text-black" />
                     </div>
                     <h1 className="text-gradient mt-5 text-3xl font-extrabold tracking-tight sm:text-4xl">
-                      QA Copilot kamu
+                      Your QA Copilot
                     </h1>
                     <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">
-                      Exploratory testing, smoke test, reproduksi bug + bukti screenshot,
-                      cari locator — semua otomatis via Playwright.
+                       Exploratory testing, smoke tests, bug reproduction with screenshot evidence,
+                       and locator discovery — all automated with Playwright.
                     </p>
                     <div className="mt-6 grid gap-3 text-left sm:grid-cols-2">
                       {SUGGESTIONS.map((s) => (
@@ -673,12 +762,15 @@ export default function Chat() {
                   <div className="flex flex-col gap-5">
                     {messages.map((m, i) =>
                       m.role === "user" ? (
-                        <div key={i} className="animate-fade-up flex justify-end">
+                         <div key={i} className="group animate-fade-up flex justify-end">
                           <div className="max-w-[85%]">
-                            <div className="rounded-2xl rounded-br-md bg-white px-4 py-3 text-sm font-medium text-black shadow-lg shadow-white/10">
-                              {m.content}
-                            </div>
-                            <p className="mt-1 text-right text-[10px] text-zinc-600">{m.time}</p>
+                             <div className="rounded-2xl rounded-br-md bg-white px-4 py-3 text-sm font-medium text-black shadow-lg shadow-white/10">
+                               {m.content}
+                             </div>
+                             <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-zinc-600">
+                               <button type="button" onClick={() => { setInput(m.content); requestAnimationFrame(autosize); }} className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100 hover:text-white"><Pencil size={10} /> Edit</button>
+                               <span>{m.time}</span>
+                             </div>
                           </div>
                         </div>
                       ) : (
@@ -691,8 +783,43 @@ export default function Chat() {
                               <div className="prose-sm text-sm leading-relaxed text-zinc-100 [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-black [&_pre]:p-3 [&_pre]:border [&_pre]:border-white/10">
                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                               </div>
+                              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                                <button type="button" onClick={() => copyMessage(m.content)} className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-zinc-500 hover:bg-white/10 hover:text-white"><Copy size={11} /> Copy</button>
+                                {messages[i - 1]?.role === "user" && <button type="button" onClick={() => send(messages[i - 1].content)} className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-zinc-500 hover:bg-white/10 hover:text-white"><RotateCcw size={11} /> Regenerate</button>}
+                              </div>
+                              {!!m.artifacts?.length && <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Workflow</p>
+                                <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                                  {(["Exploration", "Test Plan Document", "Test Cases", "Automation"] as const).map((stage) => {
+                                    const done = stage === "Exploration" || m.artifacts?.some((artifact) => artifact.kind === stage);
+                                    return <span key={stage} className={`rounded-lg border px-2 py-1.5 text-[10px] ${done ? "border-white/25 bg-white/10 text-white" : "border-white/8 text-zinc-600"}`}>{done ? "✓ " : "○ "}{stage}</span>;
+                                  })}
+                                </div>
+                                <div className="mt-3 flex flex-col gap-2">
+                                  {m.artifacts.map((artifact) => {
+                                    const quality = artifact.meta.qualityGate as { complete?: boolean; tbdCount?: number; missingFields?: string[] } | undefined;
+                                    const areas = artifact.meta.areas as Record<string, number> | undefined;
+                                    return <div key={artifact.file} className="rounded-lg border border-white/8 bg-white/5 px-3 py-2">
+                                      <div className="flex items-center gap-2"><FileText size={12} className="text-white" /><span className="text-xs font-semibold text-white">{artifact.file}</span><span className="ml-auto text-[10px] text-zinc-500">{artifact.kind}</span></div>
+                                      <p className="mt-1 text-[10px] text-zinc-400">{artifact.kind === "Test Plan Document" ? `${String(artifact.meta.sections ?? 10)} sections • ${String(artifact.meta.projectName ?? "QA project")}` : artifact.kind === "Test Cases" ? `${String(artifact.meta.count ?? 0)} cases • ${areas ? Object.entries(areas).map(([area, count]) => `${area} (${count})`).join(" · ") : "area summary unavailable"}` : "Automation artifact saved"}</p>
+                                      {quality && <p className={`mt-1 text-[10px] ${quality.complete ? "text-emerald-300" : "text-amber-300"}`}>{quality.complete ? "Quality gate passed: file written, no TBD" : `Quality gate warning: ${quality.tbdCount ?? 0} TBD, ${quality.missingFields?.length ?? 0} field(s) missing`}</p>}
+                                    </div>;
+                                  })}
+                                </div>
+                              </div>}
+                              {!!m.thinking?.length && <details className="mt-3 border-t border-white/10 pt-2" open={false}>
+                                <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wider text-zinc-500 hover:text-white">Agent activity ({m.thinking.length})</summary>
+                                <div className="mt-2 flex flex-col gap-1.5 border-l border-white/15 pl-3">
+                                  {m.thinking.map((item, index) => <p key={`${item}-${index}`} className="text-xs leading-relaxed text-zinc-400">{item}</p>)}
+                                </div>
+                              </details>}
                               {!!m.toolCalls?.length && (
                                 <div className="mt-3">
+                                  <div className="mb-2 flex flex-wrap gap-1.5">
+                                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">{m.toolCalls.length} browser steps</span>
+                                    {!!m.screenshots?.filter((shot) => !!shot.image).length && <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">{m.screenshots.filter((shot) => !!shot.image).length} screenshots</span>}
+                                    {m.toolCalls.some((tool) => /test|run/i.test(tool.tool)) && <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">Test run</span>}
+                                  </div>
                                   <button
                                     onClick={() =>
                                       setExpanded((e) => ({ ...e, [i]: !e[i] }))
@@ -700,7 +827,7 @@ export default function Chat() {
                                     className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 hover:text-white"
                                   >
                                     <Zap size={12} className="text-white" />
-                                    {m.toolCalls.length} langkah browser
+                                    {m.toolCalls.length} browser steps
                                     <ChevronDown
                                       size={13}
                                       className={`transition ${expanded[i] ? "rotate-180" : ""}`}
@@ -719,7 +846,8 @@ export default function Chat() {
                                             className="flex items-center gap-2 rounded-lg bg-black px-2.5 py-1.5 text-[11px] border border-white/10"
                                           >
                                             <meta.icon size={13} className="shrink-0 text-white" />
-                                            <span className="font-semibold text-white">{meta.label}</span>
+                                             <span className="w-7 text-[10px] text-zinc-600">{String(j + 1).padStart(2, "0")}</span>
+                                             <span className="font-semibold text-white">{meta.label}</span>
                                             <span className="truncate text-zinc-500">
                                               {JSON.stringify(t.input)}
                                             </span>
@@ -772,7 +900,7 @@ export default function Chat() {
                                       <span className="h-2.5 w-2.5 rounded-full bg-zinc-500" />
                                       <span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />
                                       <span className="ml-2 truncate text-[11px] text-zinc-400">{s.url}</span>
-                                      <span className="ml-auto text-[10px] text-zinc-600 group-hover:text-white">perbesar ⤢</span>
+                                       <span className="ml-auto text-[10px] text-zinc-600 group-hover:text-white">open ⤢</span>
                                     </div>
                                     <img src={s.image} alt={s.url} className="w-full grayscale transition duration-300 group-hover:scale-[1.01]" />
                                   </button>
@@ -796,20 +924,26 @@ export default function Chat() {
                               <span className="typing-dot h-1.5 w-1.5 rounded-full bg-white" />
                               <span className="typing-dot h-1.5 w-1.5 rounded-full bg-white" />
                             </span>
-                            <span className="truncate">{statusText}</span>
+                           <span className="truncate">{stopping ? "Stopping agent…" : `${agentMode === "sub" ? "QA sub-agent" : "Main agent"} • ${statusText}`}</span>
                           </div>
-                          <div className="mt-3 grid grid-cols-4 gap-1.5">
+                           <div className="mt-3 grid grid-cols-4 gap-1.5">
                             {progressLabels.map((label, index) => (
                               <div key={label} className="min-w-0">
                                 <div className={`h-1 rounded-full ${index < progressStage ? "bg-white" : "bg-white/15"}`} />
                                 <p className={`mt-1 truncate text-[9px] ${index < progressStage ? "text-zinc-200" : "text-zinc-600"}`}>{label}</p>
                               </div>
-                            ))}
-                          </div>
-                        </div>
+                             ))}
+                           </div>
+                           {!!thinkingText && <div className="mt-3 border-t border-white/10 pt-2">
+                             <button type="button" onClick={() => setThinkingOpen((open) => !open)} className="flex w-full items-center gap-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-500 hover:text-white">
+                               <Brain size={12} /> Agent thinking <ChevronDown size={12} className={`ml-auto transition ${thinkingOpen ? "rotate-180" : ""}`} />
+                             </button>
+                              {thinkingOpen && <div className="mt-1.5 flex flex-col gap-1.5">{thinkingHistory.length ? thinkingHistory.map((item, index) => <p key={`${item}-${index}`} className="text-xs leading-relaxed text-zinc-400">{item}</p>) : <p className="text-xs text-zinc-500">Waiting for agent activity…</p>}</div>}
+                           </div>}
+                         </div>
                       </div>
                     )}
-                    {error && (
+                     {error && (
                       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/25 bg-white/8 px-4 py-3 text-sm text-white">
                         <CircleAlert size={16} className="shrink-0" />
                         <span className="min-w-0 flex-1">{error}</span>
@@ -817,7 +951,8 @@ export default function Chat() {
                           <button type="button" onClick={() => send(lastFailedPrompt)} className="rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-black hover:bg-zinc-200">
                             Retry
                           </button>
-                        )}
+                     )}
+                     {showJump && <button type="button" onClick={() => scrollToLatest()} className="sticky bottom-3 left-1/2 z-10 mx-auto flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-zinc-900 px-3 py-1.5 text-[11px] text-white shadow-xl">Jump to latest <ChevronDown size={12} /></button>}
                       </div>
                     )}
                     <div ref={bottomRef} />
@@ -835,7 +970,14 @@ export default function Chat() {
                 }}
                 className="mx-auto w-full max-w-2xl"
               >
-                <div className="glass rounded-3xl p-2 shadow-2xl shadow-black focus-within:border-white/40">
+                <div
+                  className="glass rounded-3xl p-2 shadow-2xl shadow-black focus-within:border-white/40"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => { event.preventDefault(); handleFiles(event.dataTransfer.files); }}
+                >
+                  {!!attachments.length && <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+                    {attachments.map((file) => <span key={file.name} className="flex items-center gap-1 rounded-full border border-white/10 bg-white/8 px-2 py-1 text-[10px] text-zinc-300"><FileText size={11} /> {file.name}<button type="button" onClick={() => setAttachments((current) => current.filter((item) => item.name !== file.name))} className="ml-1 text-zinc-500 hover:text-white"><X size={11} /></button></span>)}
+                  </div>}
                   <textarea
                     ref={taRef}
                     value={input}
@@ -864,23 +1006,27 @@ export default function Chat() {
                       }
                     }}
                     rows={1}
-                    placeholder={`Tanya ${PROVIDERS[provider].label}…  (mis. smoke test login saucedemo)`}
+                    placeholder={`Ask Anything about QA`}
                     className="max-h-40 w-full resize-none bg-transparent px-4 pt-3 text-sm text-white outline-none placeholder:text-zinc-600"
                   />
                   <div className="flex items-center gap-2 px-2 pb-1">
-                    <div className="relative hidden sm:block">
+                     <label className="grid h-8 w-8 cursor-pointer place-items-center rounded-xl text-zinc-500 hover:bg-white/10 hover:text-white" title="Attach text file">
+                       <FileText size={14} />
+                       <input type="file" multiple accept=".txt,.md,.json,.js,.ts,.tsx,.jsx,.xml,.yaml,.yml,.csv,.log" className="hidden" onChange={(event) => { if (event.target.files) handleFiles(event.target.files); event.currentTarget.value = ""; }} />
+                     </label>
+                     <div className="relative hidden sm:block">
                       <button
                         type="button"
                         onClick={() => setModelMenuOpen((open) => !open)}
                         className="flex items-center gap-1.5 rounded-full bg-white/8 px-2.5 py-1 text-[11px] text-zinc-300 hover:bg-white/15 hover:text-white"
                         aria-expanded={modelMenuOpen}
-                        title="Ganti model"
+                         title="Change model"
                       >
                         <PIcon size={12} className="text-white" /> {model}
                       </button>
                       {modelMenuOpen && (
                         <div className="absolute bottom-9 left-0 z-30 min-w-48 rounded-xl border border-white/15 bg-zinc-950 p-1.5 shadow-2xl">
-                          <p className="px-2 py-1 text-[10px] uppercase tracking-widest text-zinc-600">Pilih model</p>
+                           <p className="px-2 py-1 text-[10px] uppercase tracking-widest text-zinc-600">Choose a model</p>
                           {[...new Set([...PROVIDERS[provider].models, model])].map((option) => (
                             <button
                               key={option}
@@ -894,10 +1040,10 @@ export default function Chat() {
                               className={`block w-full rounded-lg px-2 py-1.5 text-left text-xs hover:bg-white/10 ${option === model ? "text-white" : "text-zinc-400"}`}
                             >
                               {option}
-                              {option === model && <span className="float-right text-zinc-500">aktif</span>}
+                               {option === model && <span className="float-right text-zinc-500">active</span>}
                             </button>
                           ))}
-                          <Link href="/settings" className="mt-1 block border-t border-white/10 px-2 pt-2 text-[11px] text-zinc-500 hover:text-white">Kelola provider & custom model →</Link>
+                           <Link href="/settings" className="mt-1 block border-t border-white/10 px-2 pt-2 text-[11px] text-zinc-500 hover:text-white">Manage provider & custom model →</Link>
                         </div>
                       )}
                     </div>
@@ -905,11 +1051,12 @@ export default function Chat() {
                     {loading ? (
                       <button
                         type="button"
-                        onClick={stopRun}
-                        title="Hentikan agent"
+                         onClick={stopRun}
+                         disabled={stopping}
+                         title="Stop agent"
                         className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-black shadow-lg shadow-white/10 transition hover:bg-zinc-200 active:scale-95"
                       >
-                        <Square size={15} fill="currentColor" />
+                         {stopping ? <Loader2 size={15} className="animate-spin" /> : <Square size={15} fill="currentColor" />}
                       </button>
                     ) : (
                       <button
@@ -933,7 +1080,7 @@ export default function Chat() {
                     autoFocus
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Cari riwayat chat..."
+                     placeholder="Search chat history..."
                     className="w-full bg-transparent text-sm text-white outline-none placeholder:text-zinc-600"
                   />
                   <button onClick={() => setSearchOpen(false)} className="text-zinc-500 hover:text-white"><X size={16} /></button>

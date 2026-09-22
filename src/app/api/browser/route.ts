@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     switch (body.action) {
       case "navigate": {
         if (!body.url || typeof body.url !== "string") {
-          return NextResponse.json({ error: "url wajib diisi" }, { status: 400 });
+          return NextResponse.json({ error: "url is required" }, { status: 400 });
         }
         return NextResponse.json(await bw.navigate(body.url));
       }
@@ -35,14 +35,14 @@ export async function POST(req: Request) {
         return NextResponse.json(await bw.snapshot());
       case "click": {
         if (!body.selector) {
-          return NextResponse.json({ error: "selector wajib diisi" }, { status: 400 });
+          return NextResponse.json({ error: "selector is required" }, { status: 400 });
         }
         return NextResponse.json(await bw.click(body.selector));
       }
       case "type": {
         if (!body.selector || typeof body.text !== "string") {
           return NextResponse.json(
-            { error: "selector + text wajib diisi" },
+            { error: "selector and text are required" },
             { status: 400 }
           );
         }
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     }
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "gagal" },
+      { error: e instanceof Error ? e.message : "failed" },
       { status: 500 }
     );
   }

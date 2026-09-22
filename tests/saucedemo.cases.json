@@ -1,0 +1,495 @@
+[
+  {
+    "id": "TC-001",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Login dengan kredensial valid",
+    "preconditions": "User di halaman login",
+    "testData": "username=standard_user, password=secret_sauce",
+    "steps": [
+      "Buka https://www.saucedemo.com",
+      "Isi username: standard_user",
+      "Isi password: secret_sauce",
+      "Klik tombol Login"
+    ],
+    "expected": "Redirect ke /inventory.html, produk ditampilkan",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-002",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login dengan username salah",
+    "preconditions": "User di halaman login",
+    "testData": "username=invalid_user, password=secret_sauce",
+    "steps": [
+      "Buka https://www.saucedemo.com",
+      "Isi username: invalid_user",
+      "Isi password: secret_sauce",
+      "Klik tombol Login"
+    ],
+    "expected": "Error message: 'Epic sadface: Username and password do not match any user in this service'",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-003",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login dengan password salah",
+    "preconditions": "User di halaman login",
+    "testData": "username=standard_user, password=wrongpass",
+    "steps": [
+      "Buka https://www.saucedemo.com",
+      "Isi username: standard_user",
+      "Isi password: wrongpass",
+      "Klik tombol Login"
+    ],
+    "expected": "Error message: 'Epic sadface: Username and password do not match any user in this service'",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-004",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login dengan username kosong",
+    "preconditions": "User di halaman login",
+    "testData": "username=(kosong), password=secret_sauce",
+    "steps": [
+      "Buka https://www.saucedemo.com",
+      "Isi password: secret_sauce",
+      "Klik tombol Login"
+    ],
+    "expected": "Error message: 'Epic sadface: Username is required'",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-005",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login dengan password kosong",
+    "preconditions": "User di halaman login",
+    "testData": "username=standard_user, password=(kosong)",
+    "steps": [
+      "Buka https://www.saucedemo.com",
+      "Isi username: standard_user",
+      "Klik tombol Login"
+    ],
+    "expected": "Error message: 'Epic sadface: Password is required'",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-006",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login dengan semua field kosong",
+    "preconditions": "User di halaman login",
+    "testData": "username=(kosong), password=(kosong)",
+    "steps": [
+      "Buka https://www.saucedemo.com",
+      "Klik tombol Login tanpa isi apapun"
+    ],
+    "expected": "Error message: 'Epic sadface: Username is required'",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-007",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login dengan locked_out_user",
+    "preconditions": "User di halaman login",
+    "testData": "username=locked_out_user, password=secret_sauce",
+    "steps": [
+      "Buka https://www.saucedemo.com",
+      "Isi username: locked_out_user",
+      "Isi password: secret_sauce",
+      "Klik tombol Login"
+    ],
+    "expected": "Error message: 'Epic sadface: Sorry, this user has been locked out.'",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-008",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Halaman inventory menampilkan 6 produk",
+    "preconditions": "User sudah login (standard_user)",
+    "testData": "",
+    "steps": [
+      "Login dengan standard_user",
+      "Lihat halaman inventory"
+    ],
+    "expected": "6 produk ditampilkan dengan nama, deskripsi, harga, dan tombol Add to cart / Remove",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-009",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Sort produk berdasarkan nama A-Z",
+    "preconditions": "User di halaman inventory",
+    "testData": "",
+    "steps": [
+      "Login dengan standard_user",
+      "Pilih sort: 'Name (A to Z)'"
+    ],
+    "expected": "Produk terurut alfabetis A→Z (Backpack, Bike Light, Bolt T-Shirt...)",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-010",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Sort produk berdasarkan nama Z-A",
+    "preconditions": "User di halaman inventory",
+    "testData": "",
+    "steps": [
+      "Login dengan standard_user",
+      "Pilih sort: 'Name (Z to A)'"
+    ],
+    "expected": "Produk terurut alfabetis Z→A",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-011",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Sort produk berdasarkan harga rendah ke tinggi",
+    "preconditions": "User di halaman inventory",
+    "testData": "",
+    "steps": [
+      "Login dengan standard_user",
+      "Pilih sort: 'Price (low to high)'"
+    ],
+    "expected": "Produk terurut harga termurah ke termahal",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-012",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Sort produk berdasarkan harga tinggi ke rendah",
+    "preconditions": "User di halaman inventory",
+    "testData": "",
+    "steps": [
+      "Login dengan standard_user",
+      "Pilih sort: 'Price (high to low)'"
+    ],
+    "expected": "Produk terurut harga termahal ke termurah",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-013",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Tambah produk ke cart",
+    "preconditions": "User di halaman inventory",
+    "testData": "produk: Sauce Labs Backpack",
+    "steps": [
+      "Login dengan standard_user",
+      "Klik 'Add to cart' pada Sauce Labs Backpack",
+      "Cek badge cart di ikon cart"
+    ],
+    "expected": "Badge cart menampilkan angka 1, tombol berubah menjadi 'Remove'",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-014",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Hapus produk dari cart di halaman inventory",
+    "preconditions": "Produk sudah ditambahkan ke cart",
+    "testData": "produk: Sauce Labs Backpack",
+    "steps": [
+      "Login dengan standard_user",
+      "Tambah Sauce Labs Backpack ke cart",
+      "Klik tombol 'Remove'"
+    ],
+    "expected": "Tombol kembali ke 'Add to cart', badge cart hilang",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-015",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Lihat isi cart",
+    "preconditions": "Produk sudah ditambahkan ke cart",
+    "testData": "produk: Sauce Labs Backpack",
+    "steps": [
+      "Login dengan standard_user",
+      "Tambah Sauce Labs Backpack ke cart",
+      "Klik ikon cart"
+    ],
+    "expected": "Halaman /cart.html menampilkan Sauce Labs Backpack dengan nama, deskripsi, harga, qty=1",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-016",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Hapus produk dari halaman cart",
+    "preconditions": "User di halaman cart dengan 1 produk",
+    "testData": "produk: Sauce Labs Backpack",
+    "steps": [
+      "Login dan tambah Sauce Labs Backpack ke cart",
+      "Buka halaman cart",
+      "Klik tombol 'Remove'"
+    ],
+    "expected": "Produk hilang dari cart, cart kosong",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-017",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Continue Shopping kembali ke inventory",
+    "preconditions": "User di halaman cart",
+    "testData": "",
+    "steps": [
+      "Login, tambah produk, buka cart",
+      "Klik tombol 'Continue Shopping'"
+    ],
+    "expected": "Kembali ke /inventory.html",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-018",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Checkout flow lengkap — 1 produk",
+    "preconditions": "User login, 1 produk di cart",
+    "testData": "firstName=John, lastName=Doe, postalCode=12345",
+    "steps": [
+      "Login dengan standard_user",
+      "Tambah Sauce Labs Backpack ke cart",
+      "Buka cart, klik Checkout",
+      "Isi first name: John",
+      "Isi last name: Doe",
+      "Isi postal code: 12345",
+      "Klik Continue",
+      "Verifikasi halaman overview menampilkan produk + harga",
+      "Klik Finish"
+    ],
+    "expected": "Halaman /checkout-complete.html muncul, pesan 'Thank you for your order!'",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-019",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "Checkout tanpa mengisi nama depan",
+    "preconditions": "User di checkout step one, isi cart",
+    "testData": "firstName=(kosong), lastName=Doe, postalCode=12345",
+    "steps": [
+      "Isi last name: Doe, postal code: 12345 (kosongkan first name)",
+      "Klik Continue"
+    ],
+    "expected": "Error: 'Error: First Name is required'",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-020",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "Checkout tanpa mengisi nama belakang",
+    "preconditions": "User di checkout step one",
+    "testData": "firstName=John, lastName=(kosong), postalCode=12345",
+    "steps": [
+      "Isi first name: John, postal code: 12345 (kosongkan last name)",
+      "Klik Continue"
+    ],
+    "expected": "Error: 'Error: Last Name is required'",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-021",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "Checkout tanpa mengisi postal code",
+    "preconditions": "User di checkout step one",
+    "testData": "firstName=John, lastName=Doe, postalCode=(kosong)",
+    "steps": [
+      "Isi first name: John, last name: Doe (kosongkan postal code)",
+      "Klik Continue"
+    ],
+    "expected": "Error: 'Error: Postal/ZIP Code is required'",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-022",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Cancel checkout kembali ke cart",
+    "preconditions": "User di checkout step one",
+    "testData": "",
+    "steps": [
+      "Login, tambah produk, buka cart, klik Checkout",
+      "Klik tombol Cancel"
+    ],
+    "expected": "Kembali ke /cart.html",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-023",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Cancel di checkout step two kembali ke inventory",
+    "preconditions": "User di checkout step two (overview)",
+    "testData": "",
+    "steps": [
+      "Selesaikan checkout step one",
+      "Di halaman overview, klik Cancel"
+    ],
+    "expected": "Kembali ke /inventory.html",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-024",
+    "area": "Menu",
+    "type": "Positive",
+    "title": "Buka dan tutup sidebar menu",
+    "preconditions": "User sudah login",
+    "testData": "",
+    "steps": [
+      "Login dengan standard_user",
+      "Klik tombol burger menu (hamburger icon)",
+      "Verifikasi menu terbuka (All Items, About, Logout, Reset App State)",
+      "Klik tombol close menu"
+    ],
+    "expected": "Menu tertutup, kembali ke tampilan normal",
+    "priority": "Low",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-025",
+    "area": "Menu",
+    "type": "Positive",
+    "title": "Logout dari aplikasi",
+    "preconditions": "User sudah login",
+    "testData": "",
+    "steps": [
+      "Login dengan standard_user",
+      "Buka sidebar menu",
+      "Klik Logout"
+    ],
+    "expected": "Kembali ke halaman login /",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-026",
+    "area": "Menu",
+    "type": "Positive",
+    "title": "Reset App State menghapus cart",
+    "preconditions": "User login, ada produk di cart",
+    "testData": "",
+    "steps": [
+      "Login, tambah produk ke cart",
+      "Buka sidebar menu",
+      "Klik Reset App State"
+    ],
+    "expected": "Badge cart hilang,状态 cart di-reset, halaman tetap di inventory",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-027",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Klik produk lihat detail",
+    "preconditions": "User di halaman inventory",
+    "testData": "produk: Sauce Labs Backpack",
+    "steps": [
+      "Login dengan standard_user",
+      "Klik nama atau gambar Sauce Labs Backpack"
+    ],
+    "expected": "Halaman /inventory-item.html menampilkan detail produk (gambar, nama, deskripsi, harga, tombol Add to cart/Remove, Back to products)",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-028",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Back to products dari halaman detail",
+    "preconditions": "User di halaman detail produk",
+    "testData": "",
+    "steps": [
+      "Login, klik nama produk",
+      "Klik tombol 'Back to products'"
+    ],
+    "expected": "Kembali ke /inventory.html",
+    "priority": "Low",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-029",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Tambah banyak produk ke cart sekaligus",
+    "preconditions": "User di halaman inventory",
+    "testData": "produk: Sauce Labs Backpack, Bike Light, Onesie",
+    "steps": [
+      "Login dengan standard_user",
+      "Klik 'Add to cart' pada 3 produk berbeda",
+      "Cek badge cart"
+    ],
+    "expected": "Badge cart menampilkan angka 3",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-030",
+    "area": "Cart",
+    "type": "Boundary",
+    "title": "Checkout dengan cart kosong",
+    "preconditions": "User login, cart kosong",
+    "testData": "",
+    "steps": [
+      "Login dengan standard_user",
+      "Buka cart tanpa menambah produk",
+      "Cek tombol Checkout"
+    ],
+    "expected": "Checkout tidak bisa diproses atau tidak ada tombol Checkout / tombol disabled",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-031",
+    "area": "Checkout",
+    "type": "Boundary",
+    "title": "Checkout step two menampilkan ringkasan benar",
+    "preconditions": "User di checkout step two dengan 1 produk",
+    "testData": "produk: Sauce Labs Backpack ($29.99)",
+    "steps": [
+      "Login, tambah Backpack ke cart",
+      "Lakukan checkout sampai step two",
+      "Verifikasi item name, qty, price, payment info"
+    ],
+    "expected": "Item name: Sauce Labs Backpack, Qty: 1, Price: $29.99, Payment info dan shipping info ditampilkan",
+    "priority": "Medium",
+    "severity": "Medium"
+  }
+]

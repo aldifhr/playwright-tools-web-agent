@@ -14,13 +14,13 @@ export async function GET(req: Request) {
     norm.startsWith("..") ||
     !norm.split(sep).includes("test-results")
   ) {
-    return NextResponse.json({ error: "path tidak valid" }, { status: 400 });
+    return NextResponse.json({ error: "invalid path" }, { status: 400 });
   }
 
   const abs = join(process.cwd(), norm);
   const root = join(process.cwd(), "test-results") + sep;
   if (!abs.startsWith(root)) {
-    return NextResponse.json({ error: "path tidak valid" }, { status: 400 });
+    return NextResponse.json({ error: "invalid path" }, { status: 400 });
   }
 
   try {
@@ -44,6 +44,6 @@ export async function GET(req: Request) {
       },
     });
   } catch {
-    return NextResponse.json({ error: "file tidak ditemukan" }, { status: 404 });
+    return NextResponse.json({ error: "file not found" }, { status: 404 });
   }
 }
