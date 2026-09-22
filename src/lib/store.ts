@@ -1,4 +1,6 @@
 import { DEFAULT_BASE_URLS, PROVIDERS, ProviderId } from "./providers";
+import { format } from "date-fns";
+import { id } from "date-fns/locale";
 
 export type Role = "user" | "assistant";
 export type ToolCall = { tool: string; input: unknown };
@@ -158,12 +160,7 @@ export function saveActiveId(id: string) {
 export function fmtTime(ts: number): string {
   if (!ts) return "";
   try {
-    return new Date(ts).toLocaleString("id-ID", {
-      day: "numeric",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return format(new Date(ts), "d MMM, HH:mm", { locale: id });
   } catch {
     return "";
   }

@@ -6,5 +6,4 @@
 ## Fakta
 
 - Bahasa default user: Indonesia.
-- Kredensial demo saucedemo.com: standard_user / secret_sauce (publik, tertulis di halaman login).
-- Situs favorit user untuk testing: example.com
+- Pastikan jika ada jawaban yang membutuhkan tabel, gunakan tabel dengan rapih

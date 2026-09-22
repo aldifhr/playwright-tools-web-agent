@@ -4,6 +4,7 @@ import * as browser from "./browser";
 import { saveSpec, runSpec, saveCases, recordRun, listSpecs } from "./specs";
 import { saveFact, forgetFact } from "./memory";
 import { RUN_CANCELLED } from "./runs";
+import { recordToolLog } from "./tool-logs";
 
 const TestCaseSchema = z.object({
   id: z.string().describe("ID unik, mis. TC-001"),
@@ -25,7 +26,8 @@ export { statusLabel, IDLE_STATUS, THINKING_STATUS } from "./agent-status";
 // shouldAbort dicek sebelum tiap tool → implementasi interrupt.
 export function getBrowserTools(
   onCall?: (toolName: string, input: unknown) => void,
-  shouldAbort?: () => boolean
+  shouldAbort?: () => boolean,
+  delegateTask?: (task: string) => Promise<unknown>
 ) {
   const wrap = <T extends object>(
     toolName: string,
@@ -36,7 +38,33 @@ export function getBrowserTools(
       try {
         onCall?.(toolName, input);
       } catch {}
-      return fn(input);
+      const started = Date.now();
+      try {
+        const output = await fn(input);
+        const loggedInput = toolName === "browser_type"
+          ? { ...input, text: "[redacted]" }
+          : input;
+        void recordToolLog({
+          tool: toolName,
+          status: "success",
+          durationMs: Date.now() - started,
+          input: loggedInput,
+          output,
+        });
+        return output;
+      } catch (error) {
+        const loggedInput = toolName === "browser_type"
+          ? { ...input, text: "[redacted]" }
+          : input;
+        void recordToolLog({
+          tool: toolName,
+          status: "error",
+          durationMs: Date.now() - started,
+          input: loggedInput,
+          error: error instanceof Error ? error.message : "tool gagal",
+        });
+        throw error;
+      }
     };
   };
 
@@ -106,6 +134,33 @@ export function getBrowserTools(
       description: "Tutup browser",
       inputSchema: z.object({}),
       execute: wrap("browser_close", async () => browser.closeBrowser()),
+    }),
+    browser_bash: tool({
+      description: "Jalankan command terbatas tanpa shell (npm, node, grep, ls, dan command aman lain)",
+      inputSchema: z.object({ command: z.string().min(1).max(500) }),
+      execute: wrap("browser_bash", async ({ command }: { command: string }) =>
+        browser.bash(command)
+      ),
+    }),
+    browser_read_file: tool({
+      description: "Baca file secara read-only dari tests/, test-results/, logs/, src/, SOUL.md, atau MEMORY.md",
+      inputSchema: z.object({
+        path: z.string().min(1),
+        limit: z.number().int().positive().max(10000).optional(),
+      }),
+      execute: wrap(
+        "browser_read_file",
+        async ({ path, limit }: { path: string; limit?: number }) =>
+          browser.readFile(path, limit)
+      ),
+    }),
+    browser_delegate: tool({
+      description: "Delegasikan subtask QA terkontrol ke sub-agent khusus eksplorasi atau test planning",
+      inputSchema: z.object({ task: z.string().min(1).max(2_000) }),
+      execute: wrap("browser_delegate", async ({ task }: { task: string }) => {
+        if (!delegateTask) throw new Error("sub-agent tidak tersedia pada mode ini");
+        return delegateTask(task);
+      }),
     }),
     test_save: tool({
       description:

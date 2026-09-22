@@ -1,9 +1,68 @@
 import { chromium, Browser, BrowserContext, Page } from "playwright";
+import { execFile } from "node:child_process";
+import { promises as fs } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 
 let browser: Browser | null = null;
 let context: BrowserContext | null = null;
 let page: Page | null = null;
 let lastUrl = "";
+
+const ALLOWED_COMMANDS = new Set([
+  "node",
+  "npm",
+  "npx",
+  "grep",
+  "ls",
+  "cat",
+  "head",
+  "tail",
+  "wc",
+  "date",
+  "echo",
+]);
+const ALLOWED_READ_DIRS = ["tests", "test-results", "logs", "src"];
+const ALLOWED_READ_FILES = ["SOUL.md", "MEMORY.md"];
+const MAX_READ = 10_000;
+
+function inside(parent: string, target: string): boolean {
+  const rel = relative(resolve(parent), resolve(target));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function parseCommand(raw: string): string[] {
+  const args: string[] = [];
+  let token = "";
+  let quote: "'" | '"' | null = null;
+  for (let i = 0; i < raw.length; i += 1) {
+    const char = raw[i];
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else if (char === "\\" && raw[i + 1] && [quote, "\\"].includes(raw[i + 1])) {
+        token += raw[++i];
+      } else {
+        token += char;
+      }
+    } else if (char === "'" || char === '"') {
+      quote = char;
+    } else if (char === "\\" && raw[i + 1] && /[\s'"\\]/.test(raw[i + 1])) {
+      token += raw[++i];
+    } else if (/\s/.test(char)) {
+      if (token) {
+        args.push(token);
+        token = "";
+      }
+    } else if (/[|;&<>]/.test(char)) {
+      throw new Error("shell operators tidak diizinkan");
+    } else {
+      token += char;
+    }
+  }
+  if (quote) throw new Error("quote command tidak lengkap");
+  if (token) args.push(token);
+  return args;
+}
 
 async function ensureBrowser(): Promise<Page> {
   if (page && !page.isClosed()) return page;
@@ -167,4 +226,62 @@ export async function killBrowser() {
   context = null;
   browser = null;
   return { closed: true };
+}
+
+export async function bash(command: string) {
+  const raw = String(command ?? "").trim();
+  if (!raw || raw.length > 500) throw new Error("command kosong atau terlalu panjang");
+  // Do not invoke a shell: metacharacters and pipelines are intentionally rejected.
+  const parts = parseCommand(raw);
+  const executable = parts.shift()?.toLowerCase() ?? "";
+  if (!ALLOWED_COMMANDS.has(executable)) {
+    throw new Error(`Command '${executable}' tidak diizinkan`);
+  }
+  console.info(`[browser_bash] ${raw}`);
+  return new Promise<{ exitCode: number | null; stdout: string; stderr: string }>((resolvePromise, reject) => {
+    execFile(executable, parts, {
+      cwd: process.cwd(),
+      timeout: 10_000,
+      // Allow the process to finish; the response below still caps output.
+      maxBuffer: 64_000,
+      windowsHide: true,
+    }, (error, stdout, stderr) => {
+      if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+        resolvePromise({
+          exitCode: 1,
+          stdout: String(stdout).slice(0, 5_000),
+          stderr: "output dipotong karena melebihi batas buffer",
+        });
+        return;
+      }
+      if (error && typeof error.code !== "number") {
+        reject(error);
+        return;
+      }
+      resolvePromise({
+        exitCode: typeof error?.code === "number" ? error.code : 0,
+        stdout: String(stdout).slice(0, 5_000),
+        stderr: String(stderr).slice(0, 1_000),
+      });
+    });
+  });
+}
+
+export async function readFile(path: string, limit = MAX_READ) {
+  const root = process.cwd();
+  const requested = String(path ?? "").trim();
+  if (!requested) throw new Error("path wajib diisi");
+  const candidate = resolve(root, requested);
+  const realPath = await fs.realpath(candidate).catch(() => {
+    throw new Error("file tidak ditemukan");
+  });
+  const allowed =
+    ALLOWED_READ_DIRS.some((dir) => inside(resolve(root, dir), realPath)) ||
+    ALLOWED_READ_FILES.some((file) => realPath === resolve(root, file));
+  if (!allowed) {
+    throw new Error("path tidak diizinkan; hanya tests/, test-results/, logs/, src/, SOUL.md, dan MEMORY.md");
+  }
+  const safeLimit = Math.max(1, Math.min(Number(limit) || MAX_READ, MAX_READ));
+  const content = await fs.readFile(realPath, "utf8");
+  return { path: realPath, size: content.length, content: content.slice(0, safeLimit) };
 }

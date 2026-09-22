@@ -29,11 +29,25 @@ export async function POST(req: NextRequest) {
 
     const chosenModel = model || PROVIDERS[provider].models[0];
     const llm = getModel(provider, chosenModel, apiKey, baseUrl);
-    const tools = getBrowserTools();
+    const tools = getBrowserTools(
+      undefined,
+      undefined,
+      async (task) => {
+        const subResult = await generateText({
+          model: llm,
+          system:
+            "Kamu adalah sub-agent QA. Kerjakan hanya subtask yang diberikan, maksimal 8 langkah tool, lalu kembalikan hasil ringkas. Jangan mendelegasikan subtask lagi.",
+          messages: [{ role: "user", content: task }],
+          tools: getBrowserTools(),
+          stopWhen: stepCountIs(8),
+        });
+        return { role: "qa_subagent", task, text: subResult.text || "Sub-agent selesai tanpa ringkasan." };
+      }
+    );
 
     const result = await generateText({
       model: llm,
-      system: getSystemPrompt(),
+       system: getSystemPrompt({ provider, model: chosenModel, baseUrl }),
       messages: messages.map((m) => ({
         role: m.role,
         content: m.content,

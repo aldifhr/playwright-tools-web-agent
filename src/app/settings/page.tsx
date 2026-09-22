@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { DEFAULT_BASE_URLS, PROVIDERS, ProviderId } from "@/lib/providers";
 import { Settings, defaultSettings, loadSettings, saveSettings } from "@/lib/store";
+import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -53,6 +54,7 @@ export default function SettingsPage() {
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState("");
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { success, error: showError } = useToast();
 
   // hidrasi deferred agar render pertama identik SSR
   useEffect(() => {
@@ -75,12 +77,16 @@ export default function SettingsPage() {
     setLiveModels(null);
     setModelsError("");
     patch({ provider: p, model: PROVIDERS[p].models[0] });
+    success("Provider Diubah", PROVIDERS[p].label);
   }
 
   async function loadModels(manual: boolean) {
     const key = settings.keys[settings.provider]?.trim();
     if (!key) {
-      if (manual) setModelsError("Isi API key dulu");
+      if (manual) {
+        setModelsError("Isi API key dulu");
+        showError("Error", "Isi API key dulu");
+      }
       return;
     }
     setModelsLoading(true);
@@ -99,13 +105,18 @@ export default function SettingsPage() {
       if (!r.ok) throw new Error(d.error || "Gagal memuat model");
       setLiveModels(d.models);
       setModelsError("");
+      if (manual) success("Model Dimuat", `${d.models.length} model tersedia`);
       // kalau model tersimpan tidak ada di daftar live, pakai yang pertama
       if (!d.models.includes(settings.model)) {
         patch({ model: d.models[0] });
       }
     } catch (e) {
       setLiveModels(null);
-      if (manual) setModelsError(e instanceof Error ? e.message : "Gagal");
+      const msg = e instanceof Error ? e.message : "Gagal";
+      if (manual) {
+        setModelsError(msg);
+        showError("Error Memuat Model", msg);
+      }
     } finally {
       setModelsLoading(false);
     }
@@ -166,8 +177,11 @@ export default function SettingsPage() {
       const sd = await s.json();
       if (!s.ok) throw new Error(sd.error || "Screenshot gagal");
       setTest({ title: nd.title || "Example Domain", url: nd.url, image: sd.image });
+      success("Browser Test Sukses", "Chromium berhasil navigate dan screenshot");
     } catch (e) {
-      setTestError(e instanceof Error ? e.message : "Tes gagal");
+      const msg = e instanceof Error ? e.message : "Tes gagal";
+      setTestError(msg);
+      showError("Browser Test Gagal", msg);
     } finally {
       setTesting(false);
     }

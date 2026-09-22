@@ -23,10 +23,25 @@ export function loadSoul(): string {
 }
 
 // Kepribadian (SOUL.md) + kemampuan & aturan (SYSTEM_PROMPT) + ingatan (MEMORY.md).
-export function getSystemPrompt(): string {
+export function getSystemPrompt(config?: {
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+}): string {
   const mem = loadMemory();
   const memBlock = mem
     ? `\n\n---\n\n# MEMORY.md — yang kuingat tentang user\n${mem}`
     : "";
-  return `${loadSoul()}\n\n---\n\n${SYSTEM_PROMPT}${memBlock}`;
+  const metadata = {
+    agentName: "Play",
+    version: "0.1.0",
+    provider: config?.provider || "configured by client",
+    model: config?.model || "configured by client",
+    baseUrl: config?.baseUrl || "configured by client",
+    serverLocation: process.env.SERVER_LOCATION || "local",
+    uptimeMinutes: Math.floor(process.uptime() / 60),
+    timestamp: new Date().toISOString(),
+  };
+  const metadataBlock = `\n\n---\n\n# Agent Metadata\n${JSON.stringify(metadata, null, 2)}`;
+  return `${loadSoul()}\n\n---\n\n${SYSTEM_PROMPT}${metadataBlock}${memBlock}`;
 }

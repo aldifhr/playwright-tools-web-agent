@@ -2,13 +2,30 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Brain, Loader2, Plus, Trash2 } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
+
+const container = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.05,
+    },
+  },
+};
+
+const item = {
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0 },
+};
 
 export default function MemoryPage() {
   const [facts, setFacts] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const { success, error: showError } = useToast();
 
   async function refresh() {
     try {
@@ -37,7 +54,6 @@ export default function MemoryPage() {
     const fact = input.trim();
     if (!fact || busy) return;
     setBusy(true);
-    setError("");
     try {
       const r = await fetch("/api/memory", {
         method: "POST",
@@ -47,18 +63,17 @@ export default function MemoryPage() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Gagal menyimpan");
       setInput("");
+      success("Fakta disimpan", fact.slice(0, 40));
       refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal");
+      showError("Error", e instanceof Error ? e.message : "Gagal menyimpan");
     } finally {
       setBusy(false);
     }
   }
 
   async function forget(fact: string) {
-    // hapus via kata kunci unik dari fakta itu
     const query = fact.split(" ").slice(0, 4).join(" ");
-    setError("");
     try {
       const r = await fetch("/api/memory", {
         method: "POST",
@@ -67,15 +82,20 @@ export default function MemoryPage() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Gagal menghapus");
+      success("Fakta dihapus", "Ingatan diperbarui");
       refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal");
+      showError("Error", e instanceof Error ? e.message : "Gagal menghapus");
     }
   }
 
   return (
     <div className="mesh-bg min-h-screen text-white">
-      <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6"
+      >
         <Link
           href="/chat"
           className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10 hover:text-white"
@@ -83,7 +103,12 @@ export default function MemoryPage() {
           <ArrowLeft size={15} /> Kembali ke chat
         </Link>
 
-        <div className="mt-6 flex items-center gap-3">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="mt-6 flex items-center gap-3"
+        >
           <div className="grid h-11 w-11 place-items-center rounded-2xl bg-white shadow-lg shadow-white/10">
             <Brain size={22} className="text-black" />
           </div>
@@ -93,9 +118,12 @@ export default function MemoryPage() {
               Ingatan jangka panjang Faray • tersimpan di MEMORY.md ({facts.length}/100)
             </p>
           </div>
-        </div>
+        </motion.div>
 
-        <form
+        <motion.form
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
           onSubmit={(e) => {
             e.preventDefault();
             save();
@@ -114,48 +142,59 @@ export default function MemoryPage() {
           >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
           </button>
-        </form>
+        </motion.form>
 
-        {error && (
-          <div className="mt-3 rounded-xl border border-white/25 bg-white/8 px-3 py-2 text-sm text-white">
-            ⚠ {error}
-          </div>
-        )}
-
-        <div className="mt-4 flex flex-col gap-2">
-          {facts.length === 0 && (
-            <div className="grid place-items-center rounded-2xl border border-dashed border-white/15 py-14 text-center">
-              <Brain size={26} className="text-zinc-700" />
-              <p className="mt-3 text-sm font-medium text-zinc-400">Belum ada ingatan</p>
-              <p className="mt-1 max-w-60 text-xs text-zinc-600">
-                Faray otomatis mengingat fakta penting dari chat — atau tambah manual di atas
-              </p>
-            </div>
-          )}
-          {facts.map((f, i) => (
-            <div
-              key={`${i}-${f.slice(0, 20)}`}
-              className="glass group flex items-center gap-2 rounded-xl px-3 py-2.5"
-            >
-              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-white/10 text-[11px] font-bold text-zinc-300">
-                {i + 1}
-              </span>
-              <p className="min-w-0 flex-1 text-sm text-zinc-200">{f}</p>
-              <button
-                onClick={() => forget(f)}
-                title="Lupakan"
-                className="shrink-0 rounded-lg p-1.5 text-zinc-600 opacity-0 transition group-hover:opacity-100 hover:bg-white/10 hover:text-white"
+        <motion.div
+          layout
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="mt-4 flex flex-col gap-2"
+        >
+          <AnimatePresence>
+            {facts.length === 0 && (
+              <motion.div
+                key="empty"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="grid place-items-center rounded-2xl border border-dashed border-white/15 py-14 text-center"
               >
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
-        </div>
+                <Brain size={26} className="text-zinc-700" />
+                <p className="mt-3 text-sm font-medium text-zinc-400">Belum ada ingatan</p>
+                <p className="mt-1 max-w-60 text-xs text-zinc-600">
+                  Faray otomatis mengingat fakta penting dari chat — atau tambah manual di atas
+                </p>
+              </motion.div>
+            )}
+            {facts.map((f, i) => (
+              <motion.div
+                key={`${i}-${f.slice(0, 20)}`}
+                layout
+                initial={{ opacity: 0, x: -12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -12 }}
+                className="glass group flex items-center gap-2 rounded-xl px-3 py-2.5"
+              >
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-white/10 text-[11px] font-bold text-zinc-300">
+                  {i + 1}
+                </span>
+                <p className="min-w-0 flex-1 text-sm text-zinc-200">{f}</p>
+                <button
+                  onClick={() => forget(f)}
+                  title="Lupakan"
+                  className="shrink-0 rounded-lg p-1.5 text-zinc-600 opacity-0 transition group-hover:opacity-100 hover:bg-white/10 hover:text-white"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </motion.div>
 
         <p className="mt-4 text-[11px] text-zinc-600">
           Jangan simpan password / API key / token di sini — itu milik /settings.
         </p>
-      </div>
+      </motion.div>
     </div>
   );
 }

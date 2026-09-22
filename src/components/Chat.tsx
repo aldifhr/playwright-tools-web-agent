@@ -1,9 +1,11 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Bot,
   Brain,
@@ -12,21 +14,22 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  ClipboardList,
   FileText,
+  FlaskConical,
   Globe,
   Loader2,
   MessageSquare,
   MousePointerClick,
-  FlaskConical,
   Newspaper,
   PanelRight,
+  Play,
   Plus,
   RotateCcw,
   Send,
   Settings as SettingsIcon,
   Square,
   Sparkles,
-  SquareArrowOutUpRight,
   Trash2,
   TrendingUp,
   Bitcoin,
@@ -36,18 +39,18 @@ import {
 import { PROVIDERS, ProviderId } from "@/lib/providers";
 import { IDLE_STATUS } from "@/lib/agent-status";
 import {
-  Session,
-  Settings,
-  defaultSettings,
   fmtTime,
   loadActiveId,
   loadSessions,
   loadSettings,
   newSession,
+  saveSettings,
   saveActiveId,
   saveSessions,
   titleFrom,
 } from "@/lib/store";
+import { useToast } from "@/components/ui/toast";
+import { useAppStore } from "@/lib/app-store";
 
 type Msg = {
   role: "user" | "assistant";
@@ -89,6 +92,14 @@ const SUGGESTIONS = [
   },
 ];
 
+const QA_TOOLS = [
+  { icon: Globe, label: "Exploratory test", prompt: "Buka URL yang saya berikan, eksplorasi sebagai QA, dan laporkan area yang bisa diuji." },
+  { icon: ClipboardList, label: "Buat test plan", prompt: "Buat test plan QA lengkap untuk fitur atau URL yang saya berikan. Simpan dengan test_plan." },
+  { icon: FlaskConical, label: "Buat test case", prompt: "Buat test case positif, negatif, dan boundary untuk fitur atau URL yang saya berikan." },
+  { icon: Play, label: "Jalankan test", prompt: "Jalankan test Playwright yang relevan, lalu laporkan PASS, FAIL, durasi, dan error." },
+  { icon: CircleAlert, label: "Review failure", prompt: "Review hasil test terakhir, analisis root cause failure, dan sarankan perbaikan." },
+];
+
 const TOOL_META: Record<string, { icon: typeof Globe; label: string }> = {
   browser_navigate: { icon: Globe, label: "Navigate" },
   browser_snapshot: { icon: FileText, label: "Snapshot" },
@@ -113,31 +124,33 @@ function now() {
 }
 
 export default function Chat() {
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const settings = useAppStore((state) => state.settings);
+  const sessions = useAppStore((state) => state.sessions);
+  const activeId = useAppStore((state) => state.activeId);
+  const setSettings = useAppStore((state) => state.setSettings);
+  const setSessions = useAppStore((state) => state.setSessions);
+  const setActiveId = useAppStore((state) => state.setActiveId);
   const [hydrated, setHydrated] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [browserUrl, setBrowserUrl] = useState<string | null>(null);
+  const [lastFailedPrompt, setLastFailedPrompt] = useState<string | null>(null);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [previewOpen, setPreviewOpen] = useState(true);
   const [lightbox, setLightbox] = useState<{
     list: { image: string; url: string }[];
     i: number;
   } | null>(null);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
-  const [navUrl, setNavUrl] = useState("");
-  const [navLoading, setNavLoading] = useState(false);
-  const [manualShot, setManualShot] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [statusText, setStatusText] = useState(IDLE_STATUS);
-  const [specCount, setSpecCount] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const sessionRef = useRef(0);
   const streamRef = useRef<AbortController | null>(null);
   const runIdRef = useRef<string | null>(null);
+  const { error: showError } = useToast();
 
   function abortStream() {
     try {
@@ -162,10 +175,13 @@ export default function Chat() {
     }
   }
 
-  function cancelActiveRun() {
+  const cancelActiveRun = useCallback(() => {
     const id = runIdRef.current;
     runIdRef.current = null;
-    abortStream();
+    try {
+      streamRef.current?.abort();
+    } catch {}
+    streamRef.current = null;
     if (id) {
       fetch("/api/chat/cancel", {
         method: "POST",
@@ -173,7 +189,7 @@ export default function Chat() {
         body: JSON.stringify({ runId: id }),
       }).catch(() => {});
     }
-  }
+  }, []);
 
   // settings + sessions dari localStorage — dibaca deferred setelah mount
   // agar render pertama identik dengan SSR (tanpa hydration mismatch)
@@ -205,27 +221,6 @@ export default function Chat() {
     return () => clearTimeout(t);
   }, []);
 
-  // badge jumlah spec — refresh saat mount, fokus, & tiap chat selesai
-  // (agent bisa saja menyimpan spec baru)
-  async function refreshSpecCount() {
-    try {
-      const r = await fetch("/api/tests");
-      const d = await r.json();
-      if (Array.isArray(d.tests)) setSpecCount(d.tests.length);
-    } catch {}
-  }
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      refreshSpecCount();
-    }, 0);
-    window.addEventListener("focus", refreshSpecCount);
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener("focus", refreshSpecCount);
-    };
-  }, []);
-
   // reload settings saat kembali dari /settings
   useEffect(() => {
     if (!hydrated) return;
@@ -240,22 +235,6 @@ export default function Chat() {
   const model = settings.model;
   const apiKey = settings.keys[provider] ?? "";
   const baseUrl = settings.baseUrls[provider] ?? "";
-
-  const allShots = (active?.messages ?? []).flatMap((m) => m.screenshots ?? []).filter((s) => !!s.image);
-
-  // feed kronologis untuk LIVE BROWSER: semua shot AI + manual, TIDAK menimpa
-  const feedShots = (() => {
-    const feed = [...allShots];
-    if (manualShot && !feed.some((s) => s.image === manualShot)) {
-      feed.push({ url: browserUrl ?? "browser", image: manualShot });
-    }
-    return feed;
-  })();
-  const feedRef = useRef<HTMLDivElement>(null);
-  const feedLen = feedShots.length;
-  useEffect(() => {
-    feedRef.current?.scrollTo({ top: 99999, behavior: "smooth" });
-  }, [feedLen]);
 
   function commitMessages(id: string, next: Msg[], userText?: string) {
     setSessions((prev) => {
@@ -277,19 +256,36 @@ export default function Chat() {
     });
   }
 
+  useEffect(() => {
+    const cancel = cancelActiveRun;
+    const handleShortcut = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "l" && activeId) {
+        e.preventDefault();
+        commitMessages(activeId, []);
+        setInput("");
+        return;
+      }
+      if (e.key === "Escape") {
+        if (loading) cancel();
+        setSearchOpen(false);
+        setLightbox(null);
+      }
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [activeId, loading, cancelActiveRun]);
+
   function autosize() {
     const el = taRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 160) + "px";
-  }
-
-  async function refreshBrowser() {
-    try {
-      const r = await fetch("/api/browser");
-      const d = await r.json();
-      setBrowserUrl(d.url ?? null);
-    } catch {}
   }
 
   async function send(text?: string) {
@@ -299,6 +295,7 @@ export default function Chat() {
     const targetId = activeId;
     if (!targetId) return;
     setError("");
+    setLastFailedPrompt(null);
     const next: Msg[] = [...messages, { role: "user", content, time: now() }];
     commitMessages(targetId, next, content);
     setInput("");
@@ -367,15 +364,6 @@ export default function Chat() {
           } else if (ev === "aborted") {
             aborted = true;
             break;
-          } else if (ev === "shot") {
-            // live preview: tampilkan screenshot tiap ada aksi visual
-            try {
-              const d = JSON.parse(dm) as { image?: string; url?: string };
-              if (sessionRef.current === sess && d.image) {
-                setManualShot(d.image);
-                if (d.url) setBrowserUrl(d.url);
-              }
-            } catch {}
           } else if (ev === "error") {
             const d = JSON.parse(dm) as { error?: string };
             throw new Error(d.error || "Request gagal");
@@ -402,22 +390,18 @@ export default function Chat() {
           time: now(),
         },
       ]);
-      if (finalData.screenshots?.length) {
-        setBrowserUrl(
-          finalData.screenshots[finalData.screenshots.length - 1].url ?? null
-        );
-      } else {
-        refreshBrowser();
-      }
+      setLastFailedPrompt(null);
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       if (sessionRef.current !== sess) return;
-      setError(e instanceof Error ? e.message : "Gagal");
+      const msg = e instanceof Error ? e.message : "Gagal";
+      setError(msg);
+      setLastFailedPrompt(content);
+      showError("Chat Error", msg);
     } finally {
       if (streamRef.current === ctrl) streamRef.current = null;
       runIdRef.current = null;
       if (sessionRef.current === sess) setLoading(false);
-      refreshSpecCount();
       requestAnimationFrame(() =>
         bottomRef.current?.scrollIntoView({ behavior: "smooth" })
       );
@@ -432,7 +416,6 @@ export default function Chat() {
     saveActiveId(id);
     setError("");
     setExpanded({});
-    setManualShot(null);
     setLoading(false);
     requestAnimationFrame(() =>
       bottomRef.current?.scrollIntoView({ behavior: "auto" })
@@ -451,7 +434,6 @@ export default function Chat() {
     setError("");
     setInput("");
     setExpanded({});
-    setManualShot(null);
     setLoading(false);
     if (taRef.current) taRef.current.style.height = "auto";
   }
@@ -479,58 +461,16 @@ export default function Chat() {
     setLoading(false);
   }
 
-  async function manualNavigate(url?: string) {
-    const target = (url ?? navUrl).trim();
-    if (!target || navLoading) return;
-    setNavLoading(true);
-    try {
-      const r = await fetch("/api/browser", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "navigate", url: target }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Navigasi gagal");
-      setBrowserUrl(d.url ?? target);
-      // otomatis ambil screenshot sesudah navigasi agar preview hidup
-      const s = await fetch("/api/browser", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "screenshot" }),
-      });
-      const sd = await s.json();
-      if (s.ok && sd.image) {
-        setManualShot(sd.image);
-        setBrowserUrl(sd.url ?? d.url ?? target);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Navigasi gagal");
-    } finally {
-      setNavLoading(false);
-    }
-  }
-
-  async function manualScreenshot() {
-    if (navLoading) return;
-    setNavLoading(true);
-    try {
-      const r = await fetch("/api/browser", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "screenshot" }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Screenshot gagal");
-      setManualShot(d.image);
-      setBrowserUrl(d.url ?? browserUrl);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Screenshot gagal");
-    } finally {
-      setNavLoading(false);
-    }
-  }
-
   const PIcon = PROVIDER_META[provider].icon;
+  const status = statusText.toLowerCase();
+  const progressStage = status.includes("plan")
+    ? 1
+    : status.includes("open") || status.includes("scan") || status.includes("read") || status.includes("click") || status.includes("type") || status.includes("screenshot")
+      ? 2
+      : status.includes("test") || status.includes("save")
+        ? 3
+        : 1;
+  const progressLabels = ["Planning", "Browsing", "Testing", "Reporting"];
 
   return (
     <div className="mesh-bg flex h-screen text-white">
@@ -572,6 +512,20 @@ export default function Chat() {
           >
             <Plus size={16} /> Chat baru
           </button>
+
+          <p className="mt-6 mb-2 text-[11px] font-semibold tracking-widest text-zinc-500 uppercase">QA Tools</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {QA_TOOLS.map((tool) => (
+              <button
+                key={tool.label}
+                onClick={() => send(tool.prompt)}
+                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-left text-[11px] text-zinc-300 hover:border-white/25 hover:bg-white/10 hover:text-white"
+              >
+                <tool.icon size={13} className="shrink-0 text-zinc-400" />
+                <span className="truncate">{tool.label}</span>
+              </button>
+            ))}
+          </div>
 
           {/* daftar sesi */}
           <p className="mt-6 mb-2 text-[11px] font-semibold tracking-widest text-zinc-500 uppercase">
@@ -658,18 +612,6 @@ export default function Chat() {
             <SettingsIcon size={13} className="text-zinc-500" />
           </Link>
           <div className="ml-auto flex items-center gap-2">
-            {browserUrl && (
-              <a
-                href={browserUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="hidden items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-xs text-white hover:bg-white/10 sm:flex"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                <span className="max-w-56 truncate">{browserUrl}</span>
-                <SquareArrowOutUpRight size={12} />
-              </a>
-            )}
             <Link
               href="/memory"
               title="Memory"
@@ -678,24 +620,12 @@ export default function Chat() {
               <Brain size={16} />
             </Link>
             <Link
-              href="/tests"
-              title="Test cases"
-              className="relative rounded-lg bg-white/8 p-2 text-zinc-400 hover:bg-white/15 hover:text-white"
+              href="/logs"
+              title="Tool logs"
+              className="rounded-lg bg-white/8 p-2 text-zinc-400 hover:bg-white/15 hover:text-white"
             >
-              <FlaskConical size={16} />
-              {specCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-white px-1 text-[10px] font-bold text-black">
-                  {specCount > 99 ? "99+" : specCount}
-                </span>
-              )}
+              <ClipboardList size={16} />
             </Link>
-            <button
-              onClick={() => setPreviewOpen(!previewOpen)}
-              className={`rounded-lg p-2 ${previewOpen ? "bg-white text-black" : "bg-white/8 text-zinc-400 hover:bg-white/15"}`}
-              title="Toggle preview"
-            >
-              <PanelRight size={16} />
-            </button>
           </div>
         </header>
 
@@ -759,7 +689,7 @@ export default function Chat() {
                           <div className="min-w-0 flex-1">
                             <div className="glass rounded-2xl rounded-tl-md p-4">
                               <div className="prose-sm text-sm leading-relaxed text-zinc-100 [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-black [&_pre]:p-3 [&_pre]:border [&_pre]:border-white/10">
-                                <ReactMarkdown>{m.content}</ReactMarkdown>
+                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                               </div>
                               {!!m.toolCalls?.length && (
                                 <div className="mt-3">
@@ -859,19 +789,35 @@ export default function Chat() {
                         <div className="grid h-8 w-8 place-items-center rounded-xl bg-white">
                           <Loader2 size={15} className="animate-spin text-black" />
                         </div>
-                        <div className="glass flex items-center gap-2 rounded-2xl rounded-tl-md px-4 py-3 text-sm text-zinc-300">
-                          <span className="flex gap-1">
-                            <span className="typing-dot h-1.5 w-1.5 rounded-full bg-white" />
-                            <span className="typing-dot h-1.5 w-1.5 rounded-full bg-white" />
-                            <span className="typing-dot h-1.5 w-1.5 rounded-full bg-white" />
-                          </span>
-                          {statusText}
+                        <div className="glass min-w-0 flex-1 rounded-2xl rounded-tl-md px-4 py-3 text-sm text-zinc-300">
+                          <div className="flex items-center gap-2">
+                            <span className="flex gap-1">
+                              <span className="typing-dot h-1.5 w-1.5 rounded-full bg-white" />
+                              <span className="typing-dot h-1.5 w-1.5 rounded-full bg-white" />
+                              <span className="typing-dot h-1.5 w-1.5 rounded-full bg-white" />
+                            </span>
+                            <span className="truncate">{statusText}</span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-4 gap-1.5">
+                            {progressLabels.map((label, index) => (
+                              <div key={label} className="min-w-0">
+                                <div className={`h-1 rounded-full ${index < progressStage ? "bg-white" : "bg-white/15"}`} />
+                                <p className={`mt-1 truncate text-[9px] ${index < progressStage ? "text-zinc-200" : "text-zinc-600"}`}>{label}</p>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     )}
                     {error && (
-                      <div className="flex items-center gap-2 rounded-2xl border border-white/25 bg-white/8 px-4 py-3 text-sm text-white">
-                        <CircleAlert size={16} className="shrink-0" /> {error}
+                      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/25 bg-white/8 px-4 py-3 text-sm text-white">
+                        <CircleAlert size={16} className="shrink-0" />
+                        <span className="min-w-0 flex-1">{error}</span>
+                        {lastFailedPrompt && !loading && (
+                          <button type="button" onClick={() => send(lastFailedPrompt)} className="rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-black hover:bg-zinc-200">
+                            Retry
+                          </button>
+                        )}
                       </div>
                     )}
                     <div ref={bottomRef} />
@@ -898,6 +844,20 @@ export default function Chat() {
                       autosize();
                     }}
                     onKeyDown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                        e.preventDefault();
+                        send();
+                        return;
+                      }
+                      if (e.key === "ArrowUp" && !input && messages.length) {
+                        const previous = [...messages].reverse().find((m) => m.role === "user");
+                        if (previous) {
+                          e.preventDefault();
+                          setInput(previous.content);
+                          requestAnimationFrame(autosize);
+                        }
+                        return;
+                      }
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         send();
@@ -908,14 +868,39 @@ export default function Chat() {
                     className="max-h-40 w-full resize-none bg-transparent px-4 pt-3 text-sm text-white outline-none placeholder:text-zinc-600"
                   />
                   <div className="flex items-center gap-2 px-2 pb-1">
-                    <span className="hidden items-center gap-1.5 rounded-full bg-white/8 px-2.5 py-1 text-[11px] text-zinc-300 sm:flex">
-                      <PIcon size={12} className="text-white" /> {model}
-                    </span>
-                    {browserUrl && (
-                      <span className="hidden items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-white md:flex">
-                        <Globe size={11} /> live
-                      </span>
-                    )}
+                    <div className="relative hidden sm:block">
+                      <button
+                        type="button"
+                        onClick={() => setModelMenuOpen((open) => !open)}
+                        className="flex items-center gap-1.5 rounded-full bg-white/8 px-2.5 py-1 text-[11px] text-zinc-300 hover:bg-white/15 hover:text-white"
+                        aria-expanded={modelMenuOpen}
+                        title="Ganti model"
+                      >
+                        <PIcon size={12} className="text-white" /> {model}
+                      </button>
+                      {modelMenuOpen && (
+                        <div className="absolute bottom-9 left-0 z-30 min-w-48 rounded-xl border border-white/15 bg-zinc-950 p-1.5 shadow-2xl">
+                          <p className="px-2 py-1 text-[10px] uppercase tracking-widest text-zinc-600">Pilih model</p>
+                          {[...new Set([...PROVIDERS[provider].models, model])].map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() => {
+                                const next = { ...settings, model: option };
+                                setSettings(next);
+                                saveSettings(next);
+                                setModelMenuOpen(false);
+                              }}
+                              className={`block w-full rounded-lg px-2 py-1.5 text-left text-xs hover:bg-white/10 ${option === model ? "text-white" : "text-zinc-400"}`}
+                            >
+                              {option}
+                              {option === model && <span className="float-right text-zinc-500">aktif</span>}
+                            </button>
+                          ))}
+                          <Link href="/settings" className="mt-1 block border-t border-white/10 px-2 pt-2 text-[11px] text-zinc-500 hover:text-white">Kelola provider & custom model →</Link>
+                        </div>
+                      )}
+                    </div>
                     <span className="ml-auto text-[10px] text-zinc-600">{input.length}/2000</span>
                     {loading ? (
                       <button
@@ -940,79 +925,33 @@ export default function Chat() {
             </div>
           </main>
 
-          {/* ── PREVIEW PANEL ── */}
-          {previewOpen && (
-            <aside className="hidden w-105 shrink-0 flex-col border-l border-white/10 bg-black lg:flex xl:w-120">
-              <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-                <Camera size={14} className="text-white" />
-                <p className="text-xs font-semibold tracking-wide text-white">LIVE BROWSER</p>
-                <span className={`ml-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${browserUrl ? "bg-white text-black" : "bg-white/10 text-zinc-500"}`}>
-                  {browserUrl ? "● LIVE" : "IDLE"}
-                </span>
-                <button onClick={() => setPreviewOpen(false)} className="ml-auto rounded-lg p-1.5 text-zinc-500 hover:bg-white/10 hover:text-white">
-                  <X size={15} />
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4">
-                {/* kontrol manual Playwright — bisa dipakai tanpa AI key */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    manualNavigate();
-                  }}
-                  className="mb-3 flex gap-2"
-                >
+          {searchOpen && (
+            <div className="fixed inset-0 z-50 grid place-items-start bg-black/70 p-4 pt-[12vh] backdrop-blur-sm">
+              <div className="glass w-full max-w-xl rounded-2xl p-4 shadow-2xl">
+                <div className="flex items-center gap-3">
                   <input
-                    value={navUrl}
-                    onChange={(e) => setNavUrl(e.target.value)}
-                    placeholder="example.com — Enter untuk buka"
-                    className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white outline-none placeholder:text-zinc-600 focus:border-white/40"
+                    autoFocus
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Cari riwayat chat..."
+                    className="w-full bg-transparent text-sm text-white outline-none placeholder:text-zinc-600"
                   />
-                  <button
-                    type="submit"
-                    disabled={navLoading || !navUrl.trim()}
-                    className="shrink-0 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-black hover:bg-zinc-200 disabled:opacity-30"
-                  >
-                    {navLoading ? <Loader2 size={14} className="animate-spin" /> : "Buka"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={manualScreenshot}
-                    disabled={navLoading}
-                    title="Screenshot halaman aktif"
-                    className="shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white hover:bg-white/10 disabled:opacity-30"
-                  >
-                    <Camera size={14} />
-                  </button>
-                </form>
-                {feedShots.length ? (
-                  <div ref={feedRef} className="flex max-h-[calc(100vh-220px)] flex-col gap-3 overflow-y-auto pr-0.5">
-                    {feedShots.map((s, k) => (
-                      <div key={`${k}-${s.url}`} className="animate-fade-up overflow-hidden rounded-2xl border border-white/10 shadow-xl">
-                        <div className="flex items-center gap-1.5 bg-zinc-950 px-3 py-2 border-b border-white/10">
-                          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-white text-[10px] font-bold text-black">
-                            {k + 1}
-                          </span>
-                          <span className="ml-1 truncate text-[11px] text-zinc-400">{s.url}</span>
-                        </div>
-                        <button onClick={() => setLightbox({ list: feedShots, i: k })} className="group block w-full">
-                          <img src={s.image} alt={s.url} className="w-full grayscale transition duration-300 group-hover:scale-[1.01]" />
-                        </button>
-                      </div>
+                  <button onClick={() => setSearchOpen(false)} className="text-zinc-500 hover:text-white"><X size={16} /></button>
+                </div>
+                <div className="mt-3 max-h-72 overflow-y-auto">
+                  {sessions.flatMap((s) => s.messages.map((m) => ({ session: s, message: m })))
+                    .filter(({ message }) => !searchQuery.trim() || message.content.toLowerCase().includes(searchQuery.toLowerCase()))
+                    .slice(-30).reverse().map(({ session, message }, i) => (
+                      <button key={`${session.id}-${i}`} onClick={() => { switchSession(session.id); setSearchOpen(false); }} className="block w-full rounded-xl px-3 py-2 text-left hover:bg-white/10">
+                        <span className="text-[10px] text-zinc-500">{session.title}</span>
+                        <span className="mt-0.5 block truncate text-sm text-zinc-200">{message.content}</span>
+                      </button>
                     ))}
-                  </div>
-                ) : (
-                  <div className="grid place-items-center rounded-2xl border border-dashed border-white/15 py-16 text-center">
-                    <Globe size={28} className="text-zinc-700" />
-                    <p className="mt-3 text-sm font-medium text-zinc-400">Belum ada aktivitas browser</p>
-                    <p className="mt-1 max-w-55 text-xs text-zinc-600">
-                      Kirim perintah seperti “buka …” dan screenshot akan muncul di sini
-                    </p>
-                  </div>
-                )}
+                </div>
               </div>
-            </aside>
+            </div>
           )}
+
         </div>
       </div>
 

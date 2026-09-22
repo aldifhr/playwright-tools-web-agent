@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -162,6 +161,11 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-up { animation: fade-up 0.45s cubic-bezier(0.22,1,0.36,1) both; }
+
+.prose-sm table { width: 100%; margin: 0.75rem 0; border-collapse: collapse; font-size: 0.75rem; }
+.prose-sm th, .prose-sm td { border: 1px solid rgba(255,255,255,0.12); padding: 0.45rem 0.6rem; text-align: left; vertical-align: top; }
+.prose-sm th { background: rgba(255,255,255,0.08); color: white; font-weight: 600; }
+.prose-sm td { color: rgb(212 212 216); }
 
 @keyframes blob-float {
   0%,100% { transform: translate(0,0) scale(1); }

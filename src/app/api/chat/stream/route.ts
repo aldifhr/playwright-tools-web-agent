@@ -17,7 +17,7 @@ import {
 } from "@/lib/runs";
 
 export const maxDuration = 300;
-const MAX_STEPS = 20;
+const MAX_STEPS = 30;
 
 // POST /api/chat/stream — SSE. Event:
 //   status { label }   → tahap kerja agent (real-time, dari tool yang dieksekusi)
@@ -53,6 +53,11 @@ export async function POST(req: NextRequest) {
   }
 
   const chosenModel = model || PROVIDERS[provider].models[0];
+  const wantsVisualEvidence = messages.some(
+    (message) =>
+      message.role === "user" &&
+      /screenshot|screenshots|bukti visual|bukti gambar|lihat tampilan/i.test(message.content)
+  );
   let llm: ReturnType<typeof getModel>;
   try {
     llm = getModel(provider, chosenModel, apiKey, baseUrl);
@@ -77,11 +82,36 @@ export async function POST(req: NextRequest) {
       send("init", { runId });
 
       try {
+        const delegateTask = async (task: string) => {
+          if (isCancelled(runId)) throw new Error(RUN_CANCELLED);
+          send("status", { label: "Delegating QA subtask…" });
+          const subTools = getBrowserTools(
+            (toolName, input) => send("status", { label: `Sub-agent: ${statusLabel(toolName, input)}` }),
+            () => isCancelled(runId)
+          );
+          const subResult = await generateText({
+            model: llm,
+            system:
+              "Kamu adalah sub-agent QA. Kerjakan hanya subtask yang diberikan. " +
+              "Eksplorasi secukupnya, maksimal 8 langkah tool, lalu kembalikan hasil ringkas dan faktual ke agent utama. " +
+              "Jangan mendelegasikan subtask lagi.",
+            messages: [{ role: "user", content: task }],
+            tools: subTools,
+            stopWhen: stepCountIs(8),
+          });
+          return {
+            role: "qa_subagent",
+            task,
+            text: subResult.text || "Sub-agent selesai tanpa ringkasan.",
+          };
+        };
+
         const tools = getBrowserTools(
           (toolName, input) => {
             send("status", { label: statusLabel(toolName, input) });
           },
-          () => isCancelled(runId)
+          () => isCancelled(runId),
+          delegateTask
         );
 
         let modelMessages: ModelMessage[] = messages.map((m) => ({
@@ -105,7 +135,7 @@ export async function POST(req: NextRequest) {
           if (i > 0) send("status", { label: THINKING_STATUS });
           const result = await generateText({
             model: llm,
-            system: getSystemPrompt(),
+            system: getSystemPrompt({ provider, model: chosenModel, baseUrl }),
             messages: modelMessages,
             tools,
             stopWhen: stepCountIs(1),
@@ -135,6 +165,7 @@ export async function POST(req: NextRequest) {
           // navigate eksplisit — bukan tiap ketik/klik. Maks 6 per run.
           const stepTools = (step?.toolCalls ?? []).map((t) => t.toolName);
           if (
+            wantsVisualEvidence &&
             autoShots < MAX_AUTO_SHOTS &&
             !stepTools.includes("browser_screenshot") &&
             stepTools.some((t) =>
@@ -159,7 +190,11 @@ export async function POST(req: NextRequest) {
         }
 
         send("done", {
-          text: fullText.trim() || "(tidak ada jawaban)",
+          text:
+            fullText.trim() ||
+            (capped
+              ? "Agent mencapai batas langkah sebelum menyelesaikan ringkasan. Lanjutkan dari eksplorasi terakhir atau pecah permintaan menjadi area yang lebih kecil."
+              : "Tool selesai, tetapi model tidak mengirim ringkasan."),
           toolCalls,
           screenshots,
           usage,

@@ -50,8 +50,8 @@ const VARIANT_STYLE: Record<
   },
   error: {
     icon: CircleAlert,
-    bar: "bg-white",
-    iconClass: "text-white",
+    bar: "bg-red-500",
+    iconClass: "text-red-200",
   },
   info: {
     icon: Info,
