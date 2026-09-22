@@ -5,5 +5,5 @@
 
 ## Fakta
 
-- Bahasa default user: Indonesia.
 - Pastikan jika ada jawaban yang membutuhkan tabel, gunakan tabel dengan rapih
+- Pastikan jawaban benar, real, no slop

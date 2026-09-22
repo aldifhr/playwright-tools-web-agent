@@ -5,6 +5,7 @@ FarayAgent is a QA-focused AI chat application that controls a real Chromium bro
 ## Features
 
 - Real-time browser exploration with SSE progress: `Planning` → `Browsing` → `Testing` → `Reporting`
+- Human-in-the-loop: `browser_bash` pauses for explicit Approve/Deny in the chat UI before running
 - QA-only agent scope with browser, test, memory, and delegation tools
 - Test plan documents with ten sections: objective, scope, strategy, deliverables, environment, roles, schedule, risks, and approval
 - Structured `.cases.json` test cases with area summaries and quality-gate metadata
@@ -34,16 +35,31 @@ Open `http://localhost:3000`.
 
 Configure the provider, API key, base URL, and model at `/settings`. Settings are stored in the browser's local storage. Browser-only Playwright checks do not require an LLM API key.
 
+### Remote browser (optional)
+
+Set `BROWSER_CDP_URL` to drive a shared Chromium instead of launching a local one:
+
+```bash
+# WebSocket endpoint (e.g. browserless, Bright Data) or http(s) CDP endpoint
+BROWSER_CDP_URL="wss://example.com/playwright" npm run dev
+```
+
+If the variable is unset or the connection fails, the app falls back to local headless Chromium. Remote browsers are never killed — only the session context is closed.
+
+Set `BRIGHTDATA_BROWSER_AUTH` (`zone username:password`) instead to use the Bright Data managed anti-bot browser without a CDP URL. Set `BROWSER_HEADLESS=false` to run the local browser headed for visual debugging.
+
 ## Routes
 
 - `/` — landing page
-- `/chat` — primary QA chat workflow
+- `/chat` — QA chat with a project switcher
+- `/project/{projectId}` — chat locked to one project (Claude-style project URL)
+- `/projects` — create, rename, and manage projects: scoped chats, custom instructions, knowledge files
+- `/tests` — saved Playwright specs, run results, cases, and history
 - `/settings` — provider, model, API key, base URL, and Chromium check
 - `/memory` — manage durable facts stored in `MEMORY.md`
 - `/logs` — inspect tool calls, inputs, outputs, durations, and errors
+- `/prompt` — inspect the composed system prompt per section, with project-context preview
 - `/skills` — search, install, and remove agent skills
-
-The old `/tests` and `/runs` pages are intentionally not part of the current UI. Test APIs remain available to the agent.
 
 ## Chat Workflow
 
@@ -93,9 +109,9 @@ Review every external skill and its security assessment before enabling it. A Ve
 
 ## API
 
-- `POST /api/chat/stream` — SSE chat stream with status, screenshot, artifact, done, aborted, and error events
-- `POST /api/chat` — non-streaming chat fallback
+- `POST /api/chat/stream` — SSE chat stream with status, screenshot, artifact, approval, done, aborted, and error events
 - `POST /api/chat/cancel` — cancel an active run
+- `POST /api/chat/approve` — resolve a pending tool approval (`{ runId, id, approved }`)
 - `POST /api/models` — load live models from a configured provider
 - `GET|POST /api/browser` — manual browser control
 - `GET|POST /api/memory` — list, save, and forget memory facts
@@ -109,6 +125,8 @@ Review every external skill and its security assessment before enabling it. A Ve
 SOUL.md, MEMORY.md             Agent personality and durable memory
 src/app/page.tsx               Landing page
 src/app/chat/page.tsx          Chat route
+src/app/projects/page.tsx      Scoped chat projects
+src/app/tests/page.tsx         Spec list, run results, cases, history
 src/app/settings/page.tsx      Provider and browser settings
 src/app/memory/page.tsx        Memory management
 src/app/logs/page.tsx          Tool-log viewer

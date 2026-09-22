@@ -59,7 +59,7 @@ export type QaPlanDocument = {
 export async function savePlanDocument(file: string, plan: QaPlanDocument) {
   const safe = basename(String(file ?? "").trim()).replace(/\.md$/i, "") || "test-plan";
   if (!/^[a-zA-Z0-9-_]+$/.test(safe)) throw new Error("invalid test plan filename");
-  const bullet = (items: string[]) => items.length ? items.map((item) => `- ${item}`).join("\n") : "- Tidak ditentukan";
+  const bullet = (items: string[]) => items.length ? items.map((item) => `- ${item}`).join("\n") : "- TBD";
   const table = (headers: string[], rows: string[][]) => [
     `| ${headers.join(" | ")} |`,
     `| ${headers.map(() => "---").join(" | ")} |`,
@@ -155,9 +155,12 @@ export async function saveSpec(
 ): Promise<{ saved: string; lines: number }> {
   const safe = sanitizeFile(file);
   if (!content || !content.trim()) throw new Error("test content cannot be empty");
-  if (content.length > MAX_CONTENT) throw new Error("isi test terlalu besar");
+  if (content.length > MAX_CONTENT) throw new Error("test content is too large");
   if (!content.includes("@playwright/test")) {
-    throw new Error("spec harus import dari @playwright/test");
+    throw new Error("spec must import from @playwright/test");
+  }
+  if (!/\btest\s*\(/.test(content)) {
+    throw new Error("spec must contain at least one test() call");
   }
   await fs.mkdir(DIR, { recursive: true });
   await fs.writeFile(join(DIR, safe), content.trim() + "\n", "utf-8");
@@ -204,7 +207,7 @@ export async function saveCases(
   if (!Array.isArray(cases) || !cases.length) {
     throw new Error("test cases cannot be empty");
   }
-  if (cases.length > 50) throw new Error("maksimal 50 case");
+  if (cases.length > 50) throw new Error("maximum 50 cases");
   const clean = cases.map((c) => ({
     id: String(c.id ?? "").slice(0, 20),
     area: String(c.area ?? "").slice(0, 60),
@@ -306,7 +309,7 @@ const RUN_LOG_MAX = 100;
 export type RunLogEntry = {
   id: string;
   at: number;
-  scope: string | null; // nama file, atau null = semua
+  scope: string | null; // filename, or null = all
   passed: number;
   failed: number;
   skipped: number;
@@ -400,73 +403,181 @@ export async function recordRun(file: string | null, summary: RunSummary) {
   } catch {}
 }
 
+let runInFlight = false;
+
+// Fail fast: typecheck target specs before spending up to 100s on a run.
+// Returns combined compiler output, or null when clean.
+async function typecheckSpecs(files: string[]): Promise<string | null> {
+  if (!files.length) return null;
+  const tsc = join(process.cwd(), "node_modules", "typescript", "bin", "tsc");
+  return new Promise((resolvePromise) => {
+    execFile(
+      "node",
+      [
+        tsc,
+        "--noEmit",
+        "--skipLibCheck",
+        "--target", "es2017",
+        "--module", "esnext",
+        "--moduleResolution", "bundler",
+        "--lib", "esnext,dom",
+        ...files.map((f) => join(DIR, f)),
+      ],
+      { cwd: process.cwd(), timeout: 60_000, maxBuffer: 2 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (!err) {
+          resolvePromise(null);
+          return;
+        }
+        const out = `${stdout}\n${stderr}`.trim().slice(-1500);
+        resolvePromise(out || "typecheck failed with no output");
+      }
+    );
+  });
+}
+
 export function runSpec(file?: string): Promise<RunSummary> {
+  if (runInFlight) {
+    return Promise.resolve({
+      ok: false,
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      durationMs: 0,
+      results: [],
+      error: "another test run is already in progress — try again shortly",
+    });
+  }
   return new Promise((resolve) => {
+    const finish = (summary: RunSummary) => {
+      runInFlight = false;
+      resolve(summary);
+    };
     let safe: string | null = null;
     try {
       if (file) safe = sanitizeFile(file);
     } catch (e) {
-      resolve({
+      finish({
         ok: false,
         passed: 0,
         failed: 0,
         skipped: 0,
         durationMs: 0,
         results: [],
-        error: e instanceof Error ? e.message : "nama file tidak valid",
+        error: e instanceof Error ? e.message : "invalid filename",
       });
       return;
     }
-    const bin = join(process.cwd(), "node_modules", ".bin", "playwright");
-    // filter CLI Playwright itu regex substring — tanpa anchor,
-    // "saucedemo.spec.ts" ikut menjalankan "login-saucedemo.spec.ts".
-    // Escape + anchor ke path separator agar exact 1 file.
-    const args = safe
-      ? ["test", `/tests/${safe.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "--reporter=json"]
-      : ["test", "--reporter=json"];
-    const started = Date.now();
-    execFile(
-      bin,
-      args,
-      { cwd: process.cwd(), timeout: RUN_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        const durationMs = Date.now() - started;
-        try {
-          const j = JSON.parse(stdout) as {
-            stats?: {
-              expected?: number;
-              unexpected?: number;
-              skipped?: number;
-            };
-            suites?: JsonSuite[];
-          };
-          const results: SpecResult[] = [];
-          collect(j.suites, results);
-          const passed = j.stats?.expected ?? results.filter((r) => r.status === "passed").length;
-          const failed = j.stats?.unexpected ?? results.filter((r) => !["passed", "skipped"].includes(r.status)).length;
-          resolve({
-            ok: !err && failed === 0,
-            passed,
-            failed,
-            skipped: j.stats?.skipped ?? 0,
-            durationMs,
-            results,
-            error: err
-              ? `exit ${String((err as unknown as { code?: unknown }).code ?? "?")}: ${stderr.slice(-500)}`
-              : undefined,
-          });
-        } catch {
-          resolve({
-            ok: false,
-            passed: 0,
-            failed: 0,
-            skipped: 0,
-            durationMs,
-            results: [],
-            error: `gagal parse hasil: ${stdout.slice(-800)} ${stderr.slice(-300)}`,
-          });
-        }
+    // Claim the lock synchronously so a second call made in the same tick
+    // still sees it while the first is awaiting readdir/typecheck.
+    runInFlight = true;
+    void (async () => {
+      // NOTE: runInFlight is already true here (set synchronously above),
+      // so concurrent callers get the busy error even during typecheck.
+      let targets: string[];
+      try {
+        await fs.mkdir(DIR, { recursive: true });
+        targets = safe
+          ? [safe]
+          : (await fs.readdir(DIR)).filter((f) => f.endsWith(".spec.ts"));
+      } catch (e) {
+        finish({
+          ok: false,
+          passed: 0,
+          failed: 0,
+          skipped: 0,
+          durationMs: 0,
+          results: [],
+          error: e instanceof Error ? e.message : "cannot list specs",
+        });
+        return;
       }
-    );
+      if (!targets.length) {
+        finish({
+          ok: false,
+          passed: 0,
+          failed: 0,
+          skipped: 0,
+          durationMs: 0,
+          results: [],
+          error: "no .spec.ts files found — save a spec with test_save first",
+        });
+        return;
+      }
+      const typeError = await typecheckSpecs(targets);
+      if (typeError) {
+        finish({
+          ok: false,
+          passed: 0,
+          failed: 0,
+          skipped: 0,
+          durationMs: 0,
+          results: [],
+          error: `spec validation failed:\n${typeError}`,
+        });
+        return;
+      }
+      const bin = join(process.cwd(), "node_modules", ".bin", "playwright");
+      // filter CLI Playwright itu regex substring — tanpa anchor,
+      // "saucedemo.spec.ts" ikut menjalankan "login-saucedemo.spec.ts".
+      // Escape + anchor ke path separator agar exact 1 file.
+      const args = safe
+        ? ["test", `/tests/${safe.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "--reporter=json"]
+        : ["test", "--reporter=json"];
+      const started = Date.now();
+      execFile(
+        bin,
+        args,
+        { cwd: process.cwd(), timeout: RUN_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          const durationMs = Date.now() - started;
+          try {
+            const j = JSON.parse(stdout) as {
+              stats?: {
+                expected?: number;
+                unexpected?: number;
+                skipped?: number;
+              };
+              suites?: JsonSuite[];
+            };
+            const results: SpecResult[] = [];
+            collect(j.suites, results);
+            const passed = j.stats?.expected ?? results.filter((r) => r.status === "passed").length;
+            const failed = j.stats?.unexpected ?? results.filter((r) => !["passed", "skipped"].includes(r.status)).length;
+            finish({
+              ok: !err && failed === 0,
+              passed,
+              failed,
+              skipped: j.stats?.skipped ?? 0,
+              durationMs,
+              results,
+              error: err
+                ? `exit ${String((err as unknown as { code?: unknown }).code ?? "?")}: ${stderr.slice(-500)}`
+                : undefined,
+            });
+          } catch {
+            finish({
+              ok: false,
+              passed: 0,
+              failed: 0,
+              skipped: 0,
+              durationMs,
+              results: [],
+              error: `failed to parse results: ${stdout.slice(-800)} ${stderr.slice(-300)}`,
+            });
+          }
+        }
+      );
+    })().catch((e: unknown) => {
+      finish({
+        ok: false,
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        durationMs: 0,
+        results: [],
+        error: e instanceof Error ? e.message : "test run crashed",
+      });
+    });
   });
 }

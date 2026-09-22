@@ -11,6 +11,8 @@ export type ChatMsg = {
   toolCalls?: ToolCall[];
   screenshots?: Shot[];
   model?: string;
+  skills?: string[];
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
   time?: string;
 };
 
@@ -87,12 +89,12 @@ export function uid(): string {
 
 export function newSession(): Session {
   const t = Date.now();
-  return { id: uid(), title: "Chat baru", messages: [], createdAt: t, updatedAt: t };
+  return { id: uid(), title: "New chat", messages: [], createdAt: t, updatedAt: t };
 }
 
 export function titleFrom(text: string): string {
   const t = text.trim().replace(/\s+/g, " ");
-  if (!t) return "Chat baru";
+  if (!t) return "New chat";
   return t.length > 42 ? t.slice(0, 42) + "…" : t;
 }
 
@@ -118,7 +120,7 @@ export function loadSessions(): Session[] {
       .filter((s): s is Session => !!s && typeof (s as Session).id === "string")
       .map((s) => ({
         id: s.id,
-        title: String(s.title || "Chat baru"),
+        title: String(s.title || "New chat"),
         messages: Array.isArray(s.messages) ? s.messages : [],
         createdAt: Number(s.createdAt) || 0,
         updatedAt: Number(s.updatedAt) || 0,

@@ -1,0 +1,357 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, CheckCircle2, Copy, FileText, FlaskConical, Play, RotateCw, Trash2, XCircle } from "lucide-react";
+
+type SpecInfo = { file: string; kb: number; updatedAt: number };
+type SpecResult = { title: string; file: string; status: string; durationMs: number; error: string };
+type RunSummary = { ok: boolean; passed: number; failed: number; skipped: number; durationMs: number; results: SpecResult[]; error?: string };
+type RunLogEntry = { id: string; at: number; scope: string | null; passed: number; failed: number; skipped: number; durationMs: number; ok: boolean };
+type TestCase = { id: string; area: string; type: string; title: string; expected: string; priority: string; severity: string };
+
+function fmtDate(ts: number) {
+  if (!ts) return "-";
+  try {
+    return new Date(ts).toLocaleString("en-US", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "-";
+  }
+}
+
+function timeAgo(ts: number) {
+  if (!ts) return "-";
+  const diff = Date.now() - ts;
+  if (diff < 0) return "just now";
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return fmtDate(ts);
+}
+
+export const CHAT_PREFILL_KEY = "chat-prefill";
+
+export default function TestsPage() {
+  const router = useRouter();
+  const [specs, setSpecs] = useState<SpecInfo[]>([]);
+  const [lastRun, setLastRun] = useState<Record<string, RunSummary>>({});
+  const [history, setHistory] = useState<RunLogEntry[]>([]);
+  const [running, setRunning] = useState<string | null>(null);
+  const [viewFile, setViewFile] = useState<string | null>(null);
+  const [viewContent, setViewContent] = useState("");
+  const [viewCases, setViewCases] = useState<TestCase[] | null>(null);
+  const [query, setQuery] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+
+  function generateViaChat() {
+    try {
+      localStorage.setItem(
+        CHAT_PREFILL_KEY,
+        "Create a smoke test for https://www.saucedemo.com: log in with standard_user / secret_sauce, verify the inventory page, save the spec, and run it"
+      );
+    } catch {}
+    router.push("/chat");
+  }
+
+  function copySpec() {
+    if (!viewContent) return;
+    navigator.clipboard?.writeText(viewContent).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => {}
+    );
+  }
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tests", { cache: "no-store" });
+      const data = await res.json();
+      if (Array.isArray(data.tests)) setSpecs(data.tests);
+      if (data.lastRun) setLastRun(data.lastRun);
+      if (Array.isArray(data.history)) setHistory(data.history);
+    } catch {
+      setError("Failed to load specs.");
+    }
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(refresh, 0);
+    return () => clearTimeout(t);
+  }, [refresh]);
+
+  async function run(file?: string) {
+    setRunning(file ?? "__all__");
+    setError("");
+    try {
+      const res = await fetch("/api/tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "run", file }),
+      });
+      const summary = (await res.json()) as RunSummary;
+      if (summary.error && !summary.results.length) setError(summary.error);
+      await refresh();
+    } catch {
+      setError("Test run failed.");
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  async function view(file: string) {
+    setError("");
+    setViewCases(null);
+    try {
+      const res = await fetch("/api/tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "get", file }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setViewFile(file);
+      setViewContent(data.content);
+      setCopied(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to read spec.");
+    }
+  }
+
+  async function cases(file: string) {
+    setError("");
+    setViewContent("");
+    try {
+      const res = await fetch("/api/tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cases", file }),
+      });
+      const data = await res.json();
+      setViewFile(file);
+      setViewCases(Array.isArray(data.cases) ? data.cases : []);
+    } catch {
+      setError("Failed to load test cases.");
+    }
+  }
+
+  async function remove(file: string) {
+    if (!window.confirm(`Delete ${file}?`)) return;
+    try {
+      await fetch("/api/tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", file }),
+      });
+      if (viewFile === file) {
+        setViewFile(null);
+        setViewContent("");
+        setViewCases(null);
+      }
+      await refresh();
+    } catch {
+      setError("Failed to delete spec.");
+    }
+  }
+
+  const visible = specs.filter((s) =>
+    !query.trim() || s.file.toLowerCase().includes(query.trim().toLowerCase())
+  );
+
+  const totals = specs.reduce(
+    (acc, s) => {
+      const r = lastRun[s.file];
+      if (r) {
+        acc.passed += r.passed;
+        acc.failed += r.failed;
+        acc.skipped += r.skipped;
+      }
+      return acc;
+    },
+    { passed: 0, failed: 0, skipped: 0 }
+  );
+
+  return (
+    <main className="mesh-bg min-h-screen text-white">
+      <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link href="/chat" className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300 hover:bg-white/10 hover:text-white">
+            <ArrowLeft size={15} /> Chat
+          </Link>
+          <div className="ml-auto flex gap-2">
+            <button onClick={refresh} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-300 hover:bg-white/10">
+              <RotateCw size={14} /> Refresh
+            </button>
+            <button
+              onClick={() => run()}
+              disabled={running !== null || !specs.length}
+              className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-black hover:bg-zinc-200 disabled:opacity-30"
+            >
+              <Play size={14} /> {running === "__all__" ? "Running…" : "Run all"}
+            </button>
+          </div>
+        </div>
+
+        <header className="mt-8 flex items-start gap-3">
+          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-black"><FlaskConical size={22} /></div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Tests</h1>
+            <p className="mt-1 text-sm text-zinc-500">Saved Playwright specs, run results, and structured test cases.</p>
+          </div>
+        </header>
+
+        {error && <p className="mt-4 rounded-xl border border-white/25 bg-white/8 px-4 py-3 text-sm text-white">{error}</p>}
+
+        <div className="mt-6 grid grid-cols-3 gap-2">
+          <div className="glass rounded-2xl p-4"><p className="text-2xl font-bold">{specs.length}</p><p className="text-[10px] uppercase tracking-widest text-zinc-500">Specs</p></div>
+          <div className="glass rounded-2xl p-4"><p className="text-2xl font-bold text-emerald-300">{totals.passed}</p><p className="text-[10px] uppercase tracking-widest text-zinc-500">Passed</p></div>
+          <div className="glass rounded-2xl p-4"><p className="text-2xl font-bold text-amber-300">{totals.failed}</p><p className="text-[10px] uppercase tracking-widest text-zinc-500">Failed</p></div>
+        </div>
+
+        <div className="mt-6 overflow-hidden rounded-2xl border border-white/10">
+          {specs.length === 0 ? (
+            <div className="p-12 text-center">
+              <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-white/8"><FlaskConical size={22} className="text-zinc-400" /></div>
+              <p className="mt-3 text-sm font-medium text-white">No specs yet</p>
+              <p className="mx-auto mt-1 max-w-sm text-xs text-zinc-500">Ask the agent to explore a site, save a Playwright spec, and run it — all from chat.</p>
+              <button onClick={generateViaChat} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-black hover:bg-zinc-200">
+                <Play size={13} /> Generate via chat
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="border-b border-white/10 bg-black/30 px-4 py-2.5">
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search specs…"
+                  className="w-full bg-transparent text-xs text-white outline-none placeholder:text-zinc-600"
+                />
+              </div>
+              {visible.length === 0 ? (
+                <div className="p-8 text-center text-xs text-zinc-500">No specs match &ldquo;{query}&rdquo;.</div>
+              ) : (
+                visible.map((s) => {
+              const r = lastRun[s.file];
+              return (
+                <div key={s.file} className="border-b border-white/8 px-4 py-3 last:border-b-0 hover:bg-white/5">
+                  <div className="flex flex-wrap items-center gap-3">
+                    {r ? (
+                      r.ok ? <CheckCircle2 size={16} className="shrink-0 text-emerald-300" /> : <XCircle size={16} className="shrink-0 text-amber-300" />
+                    ) : (
+                      <FileText size={16} className="shrink-0 text-zinc-600" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-white">{s.file}</p>
+                      <p className="text-[11px] text-zinc-500">
+                        {s.kb} KB • {fmtDate(s.updatedAt)}
+                        {r && ` • ${r.passed} passed, ${r.failed} failed, ${r.skipped} skipped in ${r.durationMs}ms`}
+                      </p>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => run(s.file)} disabled={running !== null} className="rounded-lg bg-white/8 px-2.5 py-1.5 text-[11px] text-zinc-200 hover:bg-white/15 disabled:opacity-30">
+                        {running === s.file ? "Running…" : "Run"}
+                      </button>
+                      <button onClick={() => view(s.file)} className="rounded-lg bg-white/8 px-2.5 py-1.5 text-[11px] text-zinc-200 hover:bg-white/15">View</button>
+                      <button onClick={() => cases(s.file)} className="rounded-lg bg-white/8 px-2.5 py-1.5 text-[11px] text-zinc-200 hover:bg-white/15">Cases</button>
+                      <button onClick={() => remove(s.file)} title="Delete spec" className="rounded-lg bg-white/8 px-2.5 py-1.5 text-[11px] text-zinc-400 hover:bg-white/15 hover:text-white">
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+                  {!!r?.results.length && (
+                    <div className="mt-2 flex flex-col gap-1 border-l border-white/15 pl-3">
+                      {r.results.map((t, i) => (
+                        <p key={`${t.title}-${i}`} className="text-[11px] text-zinc-400">
+                          <span className={t.status === "passed" ? "text-emerald-300" : t.status === "skipped" ? "text-zinc-500" : "text-amber-300"}>
+                            {t.status.toUpperCase()}
+                          </span>{" "}
+                          {t.title} <span className="text-zinc-600">({t.durationMs}ms)</span>
+                          {t.error && <span className="block truncate text-zinc-500">{t.error.split("\n")[0]}</span>}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+              )}
+            </>
+          )}
+        </div>
+
+        {viewFile && (
+          <div className="mt-6 overflow-hidden rounded-2xl border border-white/10">
+            <div className="flex items-center gap-2 border-b border-white/10 bg-black/30 px-4 py-3">
+              <FileText size={14} className="text-white" />
+              <p className="truncate text-xs font-semibold text-white">{viewFile}</p>
+              {viewContent && (
+                <button onClick={copySpec} className="inline-flex items-center gap-1 rounded-lg bg-white/8 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/15 hover:text-white">
+                  <Copy size={11} /> {copied ? "Copied" : "Copy"}
+                </button>
+              )}
+              <button onClick={() => { setViewFile(null); setViewContent(""); setViewCases(null); }} className="ml-auto text-[11px] text-zinc-500 hover:text-white">Close</button>
+            </div>
+            {viewContent ? (
+              <pre className="max-h-[50vh] overflow-auto bg-black/50 p-4 text-[11px] leading-relaxed whitespace-pre-wrap text-zinc-300">{viewContent}</pre>
+            ) : viewCases ? (
+              viewCases.length === 0 ? (
+                <p className="p-6 text-center text-xs text-zinc-500">No structured cases saved for this spec.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-[11px]">
+                    <thead>
+                      <tr className="border-b border-white/10 text-zinc-500">
+                        <th className="px-3 py-2 font-medium">ID</th>
+                        <th className="px-3 py-2 font-medium">Area</th>
+                        <th className="px-3 py-2 font-medium">Type</th>
+                        <th className="px-3 py-2 font-medium">Title</th>
+                        <th className="px-3 py-2 font-medium">Priority</th>
+                        <th className="px-3 py-2 font-medium">Severity</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {viewCases.map((c) => (
+                        <tr key={c.id} className="border-b border-white/5 text-zinc-300 last:border-b-0">
+                          <td className="px-3 py-2 whitespace-nowrap">{c.id}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{c.area}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{c.type}</td>
+                          <td className="px-3 py-2">{c.title}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{c.priority}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{c.severity}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : null}
+          </div>
+        )}
+
+        {history.length > 0 && (
+          <div className="mt-6">
+            <h2 className="text-sm font-semibold text-white">Run history</h2>
+            <div className="mt-2 overflow-hidden rounded-2xl border border-white/10">
+              {history.slice().reverse().slice(0, 20).map((h) => (
+                <div key={h.id} className="flex flex-wrap items-center gap-3 border-b border-white/8 px-4 py-2.5 text-[11px] last:border-b-0">
+                  {h.ok ? <CheckCircle2 size={14} className="text-emerald-300" /> : <XCircle size={14} className="text-amber-300" />}
+                  <span className="text-zinc-300">{h.scope ?? "all"}</span>
+                  <span className="text-zinc-500" title={fmtDate(h.at)}>{timeAgo(h.at)}</span>
+                  <span className="ml-auto text-zinc-500">{h.passed} passed • {h.failed} failed • {h.skipped} skipped • {h.durationMs}ms</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}

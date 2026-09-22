@@ -1,5 +1,6 @@
 // Server-only: registrasi run agent yang bisa di-interrupt.
 // Satu run = satu request /api/chat/stream. tools + loop cek flag ini.
+import { rejectRunApprovals } from "./approvals";
 
 const runs = new Map<string, { cancelled: boolean; createdAt: number }>();
 const TTL_MS = 10 * 60_000;
@@ -27,6 +28,8 @@ export function cancelRun(id: string): boolean {
   const r = runs.get(String(id ?? ""));
   if (!r) return false;
   r.cancelled = true;
+  // A cancelled run must never hang waiting for a user decision.
+  rejectRunApprovals(String(id ?? ""));
   return true;
 }
 

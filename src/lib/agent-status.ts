@@ -30,6 +30,10 @@ export function statusLabel(toolName: string, input: unknown): string {
       return "Taking screenshot…";
     case "browser_go_back":
       return "Going back…";
+    case "browser_scroll":
+      return "Scrolling page…";
+    case "test_assert":
+      return "Asserting…";
     case "browser_close":
       return "Closing browser…";
     case "test_save":

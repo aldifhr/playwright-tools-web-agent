@@ -30,5 +30,11 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    // Eve recipe copy: self-contained and validated with `npx eve build`.
+    // Excluded here because eve's bundled type declarations exhaust the
+    // type-aware linter's memory; our code never imports it.
+    "agent"
+  ]
 }

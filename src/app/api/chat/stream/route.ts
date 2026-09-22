@@ -14,12 +14,13 @@ import {
   endRun,
   RUN_CANCELLED,
 } from "@/lib/runs";
+import { createApproval, rejectRunApprovals } from "@/lib/approvals";
+import { loadInstalledSkillsSync } from "@/lib/skills";
 
 export const maxDuration = 300;
 const MAX_STEPS = 30;
 
-function thinkingFor(toolName?: string, input?: unknown) {
-  const values = typeof input === "object" && input ? input as Record<string, unknown> : {};
+function thinkingFor(toolName?: string, input?: unknown) {  const values = typeof input === "object" && input ? input as Record<string, unknown> : {};
   const target = typeof values.url === "string" ? ` ${values.url}` : " the current target";
   const selector = typeof values.selector === "string" ? ` ${values.selector}` : " the discovered element";
   switch (toolName) {
@@ -31,6 +32,8 @@ function thinkingFor(toolName?: string, input?: unknown) {
     case "browser_screenshot": return "Capturing visual evidence for the report.";
     case "browser_go_back": return "Going back one page to verify the previous navigation path.";
     case "browser_close": return "Closing the browser after the test step is complete.";
+    case "browser_scroll": return "Scrolling the page to reveal content below the fold.";
+    case "test_assert": return "Running a deterministic assertion to verify the expected outcome.";
     default: return "Choosing the next QA action from the latest observation.";
   }
 }
@@ -72,6 +75,8 @@ export async function POST(req: NextRequest) {
   // The prompt is stable for the lifetime of a run. Rebuilding it per tool
   // step rereads MEMORY.md and every approved skill unnecessarily.
   const systemPrompt = getSystemPrompt({ provider, model: chosenModel, baseUrl });
+  // Skill exposure telemetry: which skill ids were loaded into this run's prompt.
+  const runSkillIds = loadInstalledSkillsSync().map((s) => s.id);
   const wantsVisualEvidence = messages.some(
     (message) =>
       message.role === "user" &&
@@ -103,7 +108,7 @@ export async function POST(req: NextRequest) {
       try {
         const delegateTask = async (task: string) => {
           if (isCancelled(runId)) throw new Error(RUN_CANCELLED);
-           send("status", { label: "Delegating QA subtask…", thinking: "Memecah pekerjaan browser menjadi subtask QA yang lebih kecil." });
+           send("status", { label: "Delegating QA subtask…", thinking: "Breaking the browser work into a smaller QA subtask." });
           const subTools = getBrowserTools(
              (toolName, input) => send("status", { label: `Sub-agent: ${statusLabel(toolName, input)}`, thinking: thinkingFor(toolName, input), agent: "sub" }),
             () => isCancelled(runId)
@@ -121,8 +126,15 @@ export async function POST(req: NextRequest) {
           return {
             role: "qa_subagent",
             task,
-            text: subResult.text || "Sub-agent selesai tanpa ringkasan.",
+            text: subResult.text || "Sub-agent finished without a summary.",
           };
+        };
+
+        const awaitApproval = async (toolName: string, input: unknown) => {
+          if (isCancelled(runId)) return false;
+          const { id, promise } = createApproval(runId);
+          send("approval", { id, runId, tool: toolName, input });
+          return promise;
         };
 
         const tools = getBrowserTools(
@@ -130,7 +142,8 @@ export async function POST(req: NextRequest) {
              send("status", { label: statusLabel(toolName, input), thinking: thinkingFor(toolName, input), agent: "main" });
           },
           () => isCancelled(runId),
-          delegateTask
+          delegateTask,
+          awaitApproval
         );
 
         let modelMessages: ModelMessage[] = messages.map((m) => ({
@@ -218,11 +231,12 @@ export async function POST(req: NextRequest) {
           text:
             fullText.trim() ||
             (capped
-              ? "Agent mencapai batas langkah sebelum menyelesaikan ringkasan. Lanjutkan dari eksplorasi terakhir atau pecah permintaan menjadi area yang lebih kecil."
-              : "Tool selesai, tetapi model tidak mengirim ringkasan."),
+              ? "Agent reached the step limit before finishing the summary. Continue from the last exploration or split the request into smaller areas."
+              : "Tools finished, but the model did not send a summary."),
           toolCalls,
            screenshots,
            artifacts,
+          skills: runSkillIds,
           usage,
           model: chosenModel,
           provider,
@@ -233,7 +247,7 @@ export async function POST(req: NextRequest) {
           isCancelled(runId) ||
           (e instanceof Error && e.message.includes(RUN_CANCELLED))
         ) {
-          console.log(`run ${runId} dibatalkan user`);
+          console.log(`run ${runId} cancelled by user`);
           try {
             send("aborted", {});
           } catch {}
@@ -244,6 +258,7 @@ export async function POST(req: NextRequest) {
           });
         }
       } finally {
+        rejectRunApprovals(runId);
         endRun(runId);
         controller.close();
       }

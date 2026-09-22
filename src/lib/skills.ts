@@ -61,28 +61,58 @@ export async function searchSkills(query: string) {
   return data.data ?? [];
 }
 
+function pickSkillFile(files: { path: string; contents: string }[] | undefined) {
+  if (!files?.length) return undefined;
+  const candidates = files.filter(
+    (file) => typeof file.path === "string" && file.path.toLowerCase().endsWith("skill.md")
+  );
+  if (!candidates.length) return undefined;
+  // Prefer the shallowest path (root SKILL.md over nested copies).
+  candidates.sort((a, b) => a.path.split("/").length - b.path.split("/").length);
+  return candidates[0];
+}
+
+async function fetchRawSkill(repo: string, slug: string | undefined): Promise<{ path: string; contents: string } | undefined> {
+  const names = slug ? [`skills/${slug}/SKILL.md`, `${slug}/SKILL.md`] : [];
+  const paths = [...names, "SKILL.md", "skill.md"];
+  for (const branch of ["main", "master"]) {
+    for (const candidate of paths) {
+      try {
+        const raw = await fetch(`https://raw.githubusercontent.com/${repo}/${branch}/${candidate}`);
+        if (raw.ok) {
+          const contents = await raw.text();
+          if (contents.trim()) return { path: "SKILL.md", contents };
+        }
+      } catch {}
+    }
+  }
+  return undefined;
+}
+
 export async function installSkill(id: string) {
   const response = await fetch(apiDetailPath(id), { next: { revalidate: 300 } });
   let skillFile: { path: string; contents: string } | undefined;
   if (response.ok) {
     const data = await response.json() as { id?: string; files?: { path: string; contents: string }[] };
-    skillFile = data.files?.find((file) => file.path.toLowerCase() === "skill.md");
-  } else if (response.status === 401 || response.status === 403) {
+    skillFile = pickSkillFile(data.files);
+  }
+  if (!skillFile && (response.ok || response.status === 401 || response.status === 403)) {
+    // Fall back to raw GitHub (API empty/blocked, odd layouts, master branch).
     const parts = id.split("/").filter(Boolean);
     const repo = parts.slice(0, 2).join("/");
     const slug = parts.at(-1);
-    const candidates = [`skills/${slug}/SKILL.md`, `${slug}/SKILL.md`, "SKILL.md"];
-    for (const candidate of candidates) {
-      const raw = await fetch(`https://raw.githubusercontent.com/${repo}/main/${candidate}`);
-      if (raw.ok) {
-        skillFile = { path: "SKILL.md", contents: await raw.text() };
-        break;
-      }
+    if (repo.split("/").length === 2) {
+      skillFile = await fetchRawSkill(repo, slug);
     }
-  } else {
+  }
+  if (!response.ok && response.status !== 401 && response.status !== 403) {
     throw new Error(`Skill not found (${response.status})`);
   }
-  if (!skillFile?.contents) throw new Error("This skill does not contain SKILL.md");
+  if (!skillFile?.contents?.trim()) {
+    throw new Error(
+      `This skill does not contain SKILL.md (checked the skills.sh files list and GitHub main/master for ${id})`
+    );
+  }
   if (skillFile.contents.length > MAX_SKILL_SIZE) throw new Error("SKILL.md is too large");
   const directory = skillPath(id);
   await fs.mkdir(directory, { recursive: true });
@@ -91,17 +121,50 @@ export async function installSkill(id: string) {
   return { id, directory: ".skills/" + id.split("/").join("--"), size: skillFile.contents.length };
 }
 
-export async function listInstalledSkills() {
+export type InstalledSkill = {
+  name: string;
+  disabled: boolean;
+};
+
+async function readSource(directory: string): Promise<{ id: string; installedAt: number; disabled?: boolean }> {
+  try {
+    const raw = await fs.readFile(join(SKILLS_DIR, directory, "source.json"), "utf8");
+    return JSON.parse(raw) as { id: string; installedAt: number; disabled?: boolean };
+  } catch {
+    return { id: directory.replaceAll("--", "/"), installedAt: 0 };
+  }
+}
+
+export async function listInstalledSkills(): Promise<InstalledSkill[]> {
   try {
     const entries = await fs.readdir(SKILLS_DIR, { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    return await Promise.all(
+      dirs.map(async (directory) => ({
+        name: directory,
+        disabled: (await readSource(directory)).disabled === true,
+      }))
+    );
   } catch {
     return [];
   }
 }
 
+export async function setSkillDisabled(id: string, disabled: boolean) {
+  const directory = skillPath(id);
+  const source = await readSource(directory.split("/").pop() ?? "");
+  await fs.mkdir(directory, { recursive: true });
+  await fs.writeFile(
+    join(directory, "source.json"),
+    JSON.stringify({ ...source, id, disabled }, null, 2),
+    "utf8"
+  );
+  return { id, disabled };
+}
+
 export async function loadInstalledSkills() {
-  const directories = await listInstalledSkills();
+  const installed = await listInstalledSkills();
+  const directories = installed.filter((s) => !s.disabled).map((s) => s.name);
   const loaded: { id: string; content: string }[] = [];
   for (const directory of directories) {
     try {
@@ -115,16 +178,25 @@ export async function loadInstalledSkills() {
 export function loadInstalledSkillsSync() {
   try {
     const roots = [
-      { directory: SKILLS_DIR, allow: () => true },
-      { directory: AGENT_SKILLS_DIR, allow: (name: string) => TRUSTED_AGENT_SKILLS.has(name) },
+      { directory: SKILLS_DIR, allow: () => true, checkDisabled: true },
+      { directory: AGENT_SKILLS_DIR, allow: (name: string) => TRUSTED_AGENT_SKILLS.has(name), checkDisabled: false },
     ];
-    return roots.flatMap(({ directory, allow }) => {
+    return roots.flatMap(({ directory, allow, checkDisabled }) => {
       try {
         return readdirSync(directory, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && allow(entry.name))
           .flatMap((entry) => {
             try {
-              return [{ id: entry.name.replaceAll("--", "/"), content: readFileSync(join(directory, entry.name, "SKILL.md"), "utf8").slice(0, MAX_SKILL_SIZE) }];
+              const id = entry.name.replaceAll("--", "/");
+              if (checkDisabled) {
+                try {
+                  const source = JSON.parse(
+                    readFileSync(join(directory, entry.name, "source.json"), "utf8")
+                  ) as { disabled?: boolean };
+                  if (source.disabled === true) return [];
+                } catch {}
+              }
+              return [{ id, content: readFileSync(join(directory, entry.name, "SKILL.md"), "utf8").slice(0, MAX_SKILL_SIZE) }];
             } catch {
               return [];
             }

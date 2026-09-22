@@ -27,13 +27,20 @@ const PlanApprovalSchema = z.object({ name: z.string(), role: z.string(), signat
 
 export { statusLabel, IDLE_STATUS, THINKING_STATUS } from "./agent-status";
 
-// Dipakai /api/chat (sekali jalan) dan /api/chat/stream (SSE per-step).
+// Tools that pause for explicit user approval before executing.
+// Extend this set to gate more tools; approval UI lives in Chat.tsx,
+// resolution arrives via POST /api/chat/approve.
+const APPROVAL_TOOLS = new Set(["browser_bash"]);
+
+// Dipakai /api/chat/stream (SSE per-step).
 // onCall dipanggil TEPAT SEBELUM tool dieksekusi → cocok untuk status real-time.
 // shouldAbort dicek sebelum tiap tool → implementasi interrupt.
+// awaitApproval dipanggil untuk tool sensitif → human-in-the-loop (resep AI SDK).
 export function getBrowserTools(
   onCall?: (toolName: string, input: unknown) => void,
   shouldAbort?: () => boolean,
-  delegateTask?: (task: string) => Promise<unknown>
+  delegateTask?: (task: string) => Promise<unknown>,
+  awaitApproval?: (toolName: string, input: unknown) => Promise<boolean>
 ) {
   const wrap = <T extends object>(
     toolName: string,
@@ -41,6 +48,16 @@ export function getBrowserTools(
   ) => {
     return async (input: T) => {
       if (shouldAbort?.()) throw new Error(RUN_CANCELLED);
+      if (APPROVAL_TOOLS.has(toolName)) {
+        // No approval channel (sub-agent, other callers) = allow, as before.
+        const approved = awaitApproval ? await awaitApproval(toolName, input) : true;
+        if (shouldAbort?.()) throw new Error(RUN_CANCELLED);
+        if (!approved) {
+          throw new Error(
+            `User denied ${toolName}. Do not retry it; inform the user the action was not performed.`
+          );
+        }
+      }
       try {
         onCall?.(toolName, input);
       } catch {}
@@ -77,18 +94,18 @@ export function getBrowserTools(
   return {
     browser_navigate: tool({
        description: "Open a URL in the automated browser",
-      inputSchema: z.object({ url: z.string().describe("URL lengkap") }),
+      inputSchema: z.object({ url: z.string().describe("full URL") }),
       execute: wrap("browser_navigate", async ({ url }: { url: string }) =>
         browser.navigate(url)
       ),
     }),
     browser_snapshot: tool({
-       description: "Inspect the active page structure",
+      description: "Inspect the active page structure (tag, role, accessible name, text)",
       inputSchema: z.object({}),
       execute: wrap("browser_snapshot", async () => browser.snapshot()),
     }),
     browser_get_text: tool({
-      description: "Ambil teks isi halaman",
+      description: "Read the visible page text",
       inputSchema: z.object({}),
       execute: wrap("browser_get_text", async () => browser.getText()),
     }),
@@ -121,7 +138,7 @@ export function getBrowserTools(
       ),
     }),
     browser_screenshot: tool({
-      description: "Ambil screenshot halaman aktif (PNG base64)",
+      description: "Capture a screenshot of the active page (base64 PNG)",
       inputSchema: z.object({
         fullPage: z.boolean().optional().default(false),
       }),
@@ -132,12 +149,46 @@ export function getBrowserTools(
       ),
     }),
     browser_go_back: tool({
-      description: "Kembali ke halaman sebelumnya",
+      description: "Go back to the previous page",
       inputSchema: z.object({}),
       execute: wrap("browser_go_back", async () => browser.goBack()),
     }),
+    browser_scroll: tool({
+      description: "Scroll the page to reveal content below the fold, then snapshot again",
+      inputSchema: z.object({
+        direction: z.enum(["down", "up", "top", "bottom"]).optional().default("down"),
+        pixels: z.number().int().min(100).max(5000).optional().default(600),
+      }),
+      execute: wrap(
+        "browser_scroll",
+        async ({ direction, pixels }: { direction?: "down" | "up" | "top" | "bottom"; pixels?: number }) =>
+          browser.scrollPage(direction ?? "down", pixels ?? 600)
+      ),
+    }),
+    test_assert: tool({
+      description: "Run a deterministic assertion against the live page and get a PASS/FAIL result. Use this to verify outcomes instead of eyeballing.",
+      inputSchema: z.object({
+        kind: z.enum(["text_contains", "visible", "count"]).describe("text_contains needs text; visible and count need selector; count also needs expected"),
+        selector: z.string().optional().default(""),
+        text: z.string().optional().default(""),
+        expected: z.number().int().min(0).optional().default(1),
+      }),
+      execute: wrap(
+        "test_assert",
+        async ({ kind, selector, text, expected }: { kind: "text_contains" | "visible" | "count"; selector?: string; text?: string; expected?: number }) => {
+          if (kind === "text_contains") {
+            if (!text) throw new Error("text is required for text_contains");
+            return browser.assertPage({ kind, text });
+          }
+          if (!selector) throw new Error("selector is required for visible/count");
+          return kind === "visible"
+            ? browser.assertPage({ kind, selector })
+            : browser.assertPage({ kind, selector, expected: expected ?? 1 });
+        }
+      ),
+    }),
     browser_close: tool({
-      description: "Tutup browser",
+      description: "Close the browser",
       inputSchema: z.object({}),
       execute: wrap("browser_close", async () => browser.closeBrowser()),
     }),
@@ -174,8 +225,8 @@ export function getBrowserTools(
       inputSchema: z.object({
         file: z
           .string()
-          .describe("nama file, mis. login-saucedemo.spec.ts"),
-        content: z.string().describe("isi spec lengkap"),
+          .describe("file name, e.g. login-saucedemo.spec.ts"),
+        content: z.string().describe("full spec content"),
       }),
       execute: wrap(
         "test_save",
@@ -187,7 +238,7 @@ export function getBrowserTools(
       description:
         "Save a ten-section QA test plan document as Markdown: Project Information, Objective, Scope, Test Strategy, Deliverables, Environment, Roles, Schedule, Risk & Mitigation, and Approval",
       inputSchema: z.object({
-        file: z.string().describe("nama file dasar, mis. saucedemo-test-plan"),
+        file: z.string().describe("base file name, e.g. saucedemo-test-plan"),
         projectName: z.string(),
         testerName: z.string(),
         date: z.string(),
@@ -247,7 +298,7 @@ export function getBrowserTools(
       inputSchema: z.object({
         file: z
           .string()
-          .describe("nama dasar file, mis. login-saucedemo.spec.ts"),
+          .describe("base file name, e.g. login-saucedemo.spec.ts"),
         cases: z.array(TestCaseSchema).min(1).max(50),
       }),
       execute: wrap(
