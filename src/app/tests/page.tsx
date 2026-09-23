@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Copy, FileText, FlaskConical, Play, RotateCw, Trash2, XCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Copy, FileText, FileUp, FlaskConical, Play, RotateCw, Trash2, XCircle } from "lucide-react";
+import { rowsToCases, suggestFileName, type ImportedCase } from "@/lib/case-import";
 
 type SpecInfo = { file: string; kb: number; updatedAt: number };
 type SpecResult = { title: string; file: string; status: string; durationMs: number; error: string };
@@ -62,6 +63,10 @@ export default function TestsPage() {
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [imported, setImported] = useState<ImportedCase[] | null>(null);
+  const [importName, setImportName] = useState("");
+  const [importing, setImporting] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
 
   function generateViaChat() {
@@ -72,6 +77,64 @@ export default function TestsPage() {
       );
     } catch {}
     router.push("/chat");
+  }
+
+  async function importFile(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    setError("");
+    try {
+      const XLSX = await import("xlsx");
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: "array", sheetRows: 200 });
+      if (!wb.SheetNames.length) throw new Error("Workbook has no sheets");
+      const merged: ImportedCase[] = [];
+      for (const sheetName of wb.SheetNames.slice(0, 10)) {
+        const rows = XLSX.utils.sheet_to_json<(string | number | boolean | null | undefined)[]>(
+          wb.Sheets[sheetName],
+          { header: 1, raw: false, defval: "" }
+        );
+        if (rows.length < 2) continue;
+        const headers = (rows[0] as unknown[]).map((h) => String(h ?? ""));
+        try {
+          const parsed = rowsToCases(headers, rows.slice(1) as (string | number | boolean | null | undefined)[][], {
+            areaFallback: sheetName,
+            idPrefix: sheetName.slice(0, 4).toUpperCase() || "TC",
+          });
+          merged.push(...parsed);
+        } catch {
+          // Sheet without recognizable columns — skipped, others still import.
+        }
+        if (merged.length >= 50) break;
+      }
+      if (!merged.length) throw new Error("No importable rows found in any sheet");
+      setImported(merged.slice(0, 50));
+      setImportName(suggestFileName(file.name));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to parse spreadsheet.");
+      setImported(null);
+    }
+  }
+
+  async function saveImport() {
+    if (!imported?.length || !importName.trim()) return;
+    setImporting(true);
+    setError("");
+    try {
+      const res = await fetch("/api/tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "import", file: importName.trim(), cases: imported }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import failed.");
+      setImported(null);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Import failed.");
+    } finally {
+      setImporting(false);
+    }
   }
 
   function copySpec() {
@@ -240,6 +303,10 @@ export default function TestsPage() {
             <button onClick={refresh} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-300 hover:bg-white/10">
               <RotateCw size={14} /> Refresh
             </button>
+            <button onClick={() => importRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-300 hover:bg-white/10">
+              <FileUp size={14} /> Import XLSX/CSV
+            </button>
+            <input ref={importRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { void importFile(e.target.files); e.currentTarget.value = ""; }} />
             <button
               onClick={() => run()}
               disabled={running !== null || !specs.length}
@@ -249,6 +316,38 @@ export default function TestsPage() {
             </button>
           </div>
         </div>
+
+        {imported && (
+          <div className="animate-fade-up mt-6 rounded-2xl border border-emerald-300/25 bg-emerald-300/5 p-4">
+            <p className="text-sm font-semibold text-white">
+              {imported.length} case(s) parsed — review, name the file, save.
+            </p>
+            <div className="mt-1 max-h-40 overflow-auto rounded-xl bg-black/40 p-3 text-[11px] text-zinc-400">
+              {imported.slice(0, 10).map((c) => (
+                <p key={c.id} className="truncate">{c.id} — {c.title} ({c.steps.length} steps)</p>
+              ))}
+              {imported.length > 10 && <p className="text-zinc-600">…and {imported.length - 10} more</p>}
+            </div>
+            <div className="mt-3 flex gap-2">
+              <input
+                value={importName}
+                onChange={(e) => setImportName(e.target.value)}
+                placeholder="file-name.spec.ts"
+                className="w-full rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs text-white outline-none placeholder:text-zinc-600"
+              />
+              <button
+                onClick={saveImport}
+                disabled={importing || !importName.trim()}
+                className="shrink-0 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-zinc-200 disabled:opacity-30"
+              >
+                {importing ? "Saving…" : "Save cases"}
+              </button>
+              <button onClick={() => setImported(null)} className="shrink-0 rounded-xl border border-white/15 px-4 py-2 text-xs text-zinc-300 hover:bg-white/10">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         <header className="mt-8 flex items-start gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-black"><FlaskConical size={22} /></div>

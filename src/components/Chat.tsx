@@ -13,6 +13,7 @@ import {
   CircleAlert,
   ClipboardList,
   FileText,
+  FileCode2,
   FileSpreadsheet,
   FlaskConical,
   Loader2,
@@ -44,6 +45,7 @@ import { now, type Approval, type Attachment, type LightboxState, type Msg } fro
 import { PROGRESS_LABELS, PROVIDER_META, SUGGESTIONS, TOOL_META } from "@/components/chat/meta";
 import { COMMANDS, HELP_TEXT, parseCommand } from "@/components/chat/commands";
 import { downloadXlsx, messageToHtml, parseMarkdownTables, printMessage } from "@/components/chat/export";
+import { suggestTraceFileName, toolCallsToSpec } from "@/lib/trace-to-spec";
 import Sidebar from "@/components/chat/Sidebar";
 import Composer from "@/components/chat/Composer";
 import SearchModal from "@/components/chat/SearchModal";
@@ -370,6 +372,23 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
 
   function copyMessage(content: string) {
     navigator.clipboard?.writeText(content).catch(() => {});
+  }
+
+  async function saveTraceAsSpec(toolCalls: { tool: string; input: unknown }[], sessionTitle: string) {
+    try {
+      const content = toolCallsToSpec(toolCalls, sessionTitle);
+      const file = suggestTraceFileName(sessionTitle);
+      const res = await fetch("/api/tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save", file, content }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Failed to save spec.");
+      showSuccess("Spec saved", `${d.saved} — open /tests to run it.`);
+    } catch (e) {
+      showError("Save failed", e instanceof Error ? e.message : "Failed.");
+    }
   }
 
   async function rememberRun(userContent: string, assistantContent: string, key: number) {
@@ -986,6 +1005,16 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                                 >
                                   <Printer size={11} /> PDF
                                 </button>
+                                {!!m.toolCalls?.length && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void saveTraceAsSpec(m.toolCalls ?? [], active?.title ?? "recorded session")}
+                                    title="Convert this run's browser actions into a Playwright spec"
+                                    className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-zinc-500 hover:bg-white/10 hover:text-white"
+                                  >
+                                    <FileCode2 size={11} /> Save as spec
+                                  </button>
+                                )}
                               </div>
                               {!!m.artifacts?.length && <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
                                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Workflow</p>

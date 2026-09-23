@@ -1,15 +1,28 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { listSpecs, readSpec, deleteSpec, deleteCases, readCasesWithResults, saveCaseResults, runSpec, recordRun, loadLastRun, loadRunLog } from "@/lib/specs";
+import { listSpecs, readSpec, deleteSpec, deleteCases, readCasesWithResults, saveCaseResults, saveCases, saveSpec, runSpec, recordRun, loadLastRun, loadRunLog } from "@/lib/specs";
 import { guardApi } from "@/lib/api-guard";
 
 const TestsBodySchema = z.object({
-  action: z.enum(["get", "delete", "cases", "results", "record", "run"]).optional(),
+  action: z.enum(["get", "delete", "cases", "results", "record", "import", "save", "run"]).optional(),
   file: z.string().max(200).optional(),
+  content: z.string().max(200_000).optional(),
   results: z.array(z.object({
     id: z.string().max(20),
     status: z.string().max(10),
     actual: z.string().max(500).optional(),
+  })).max(50).optional(),
+  cases: z.array(z.object({
+    id: z.string().max(20),
+    area: z.string().max(60).optional().default(""),
+    type: z.string().max(20).optional().default("Positive"),
+    title: z.string().max(160),
+    preconditions: z.string().max(300).optional().default(""),
+    testData: z.string().max(300).optional().default(""),
+    steps: z.array(z.string().max(300)).max(20),
+    expected: z.string().max(300),
+    priority: z.string().max(10).optional().default("Medium"),
+    severity: z.string().max(10).optional().default("Medium"),
   })).max(50).optional(),
 });
 
@@ -82,6 +95,25 @@ export async function POST(req: Request) {
            return NextResponse.json({ error: "results are required" }, { status: 400 });
         }
         return NextResponse.json(await saveCaseResults(body.file, body.results));
+      }
+      case "import": {        if (!body.file) {
+           return NextResponse.json({ error: "file is required" }, { status: 400 });
+        }
+        if (!body.cases?.length) {
+           return NextResponse.json({ error: "cases are required" }, { status: 400 });
+        }
+        // saveCases re-validates everything (ids, titles, steps, expected).
+        return NextResponse.json(await saveCases(body.file, body.cases as Parameters<typeof saveCases>[1]));
+      }
+      case "save": {
+        if (!body.file) {
+           return NextResponse.json({ error: "file is required" }, { status: 400 });
+        }
+        if (!body.content?.trim()) {
+           return NextResponse.json({ error: "content is required" }, { status: 400 });
+        }
+        // saveSpec re-validates (suffix, @playwright/test import, test() call).
+        return NextResponse.json(await saveSpec(body.file, body.content));
       }
       case "run": {
         const summary = await runSpec(body.file || undefined);

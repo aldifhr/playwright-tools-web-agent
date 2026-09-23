@@ -85,8 +85,7 @@ test("concurrent slots guard expensive endpoints", () => {
   leave(slot);
 });
 
-test("manual results round-trip with validation", async () => {
-  const file = "tmp-manual.spec.ts";
+test("manual results round-trip with validation", async () => {  const file = "tmp-manual.spec.ts";
   await saveCases(file, [
     { id: "TC-001", area: "Login", type: "Positive", title: "valid login", preconditions: "", testData: "", steps: ["open page"], expected: "dashboard", priority: "High", severity: "High" },
   ]);
@@ -119,4 +118,24 @@ test("auth is open without token, enforced with token", () => {
   } finally {
     delete process.env.APP_TOKEN;
   }
+});
+
+test("rowsToCases maps headers, splits steps, dedupes ids", async () => {
+  const { rowsToCases, suggestFileName } = await import("../src/lib/case-import");
+  const headers = ["ID", "Area", "Type", "Title", "Test Data", "Test Step", "Expected Result", "Priority"];
+  const out = rowsToCases(headers, [
+    ["LGN001", "Login", "Positive", "valid login", "standard_user", "1. Input user 2. Input pass 3. Click login", "dashboard", "High"],
+    ["LGN001", "Login", "Negative", "dup id", "", "1. Do x", "error", ""],
+    ["", "", "", "", "", "", "", ""],
+  ]);
+  expect(out).toHaveLength(2);
+  expect(out[0].steps).toEqual(["Input user", "Input pass", "Click login"]);
+  expect(out[0].priority).toBe("High");
+  expect(out[1].id).not.toBe("LGN001");
+  expect(out[1].priority).toBe("Medium");
+  const fb = rowsToCases(["Title", "Expected Result"], [["t", "e"]], { areaFallback: "Cart", idPrefix: "CART" });
+  expect(fb[0].id).toBe("CART-001");
+  expect(fb[0].area).toBe("Cart");
+  expect(suggestFileName("TestCase_SauceDemo.xlsx")).toBe("TestCase_SauceDemo.spec.ts");
+  await expect(async () => rowsToCases(["Foo", "Bar"], [["a", "b"]])).rejects.toThrow();
 });
