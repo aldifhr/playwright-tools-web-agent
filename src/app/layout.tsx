@@ -18,7 +18,11 @@ export const metadata: Metadata = {
   description: "QA-focused AI chat that controls a real Chromium browser: explore sites, create test plans, run Playwright specs, and report grounded results",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html
       lang="en"
