@@ -1,7 +1,7 @@
 import { chromium, Browser, BrowserContext, Page } from "playwright";
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { assertPublicTarget } from "./ssrf";
 
 let browser: Browser | null = null;
@@ -145,10 +145,14 @@ async function ensureBrowser(): Promise<Page> {
     if (!context) {
       // Last resort: page straight off the browser (default context).
       page = await active.newPage();
+      attachPageListeners(page);
+      dialogState(page);
       return page;
     }
   }
   page = await context.newPage();
+  attachPageListeners(page);
+  dialogState(page);
   return page;
 }
 
@@ -156,6 +160,9 @@ const CONTEXT_OPTIONS = {
   viewport: { width: 1280, height: 800 },
   userAgent:
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+  // QA tools routinely hit staging/test sites with self-signed certs.
+  ignoreHTTPSErrors: true,
+  acceptDownloads: true,
 } as const;
 
 // Create an isolated context. Returns owned=false when falling back to a
@@ -223,6 +230,8 @@ async function sessionPage(runId: string): Promise<Page> {
   } else {
     page = await active.newPage();
   }
+  attachPageListeners(page);
+  dialogState(page);
   sessions.set(runId, { context: ctx, page, ownedContext: owned && !!ctx, createdAt: Date.now() });
   return page;
 }
@@ -257,6 +266,189 @@ export async function pageUrl(sid?: string): Promise<string | null> {
   return lastUrl || null;
 }
 
+type NetEntry = { method: string; url: string; status: number | null; ms: number };
+type LogEntry = { type: string; text: string };
+
+// Per-page observability buffers (network + console). WeakMap so closed
+// pages never leak; capped to bound memory on long runs.
+const pageNets = new WeakMap<Page, { entries: NetEntry[]; starts: Map<string, number> }>();
+const pageLogs = new WeakMap<Page, LogEntry[]>();
+const MAX_NET = 200;
+const MAX_LOGS = 200;
+
+function attachPageListeners(p: Page) {
+  if (pageNets.has(p)) return;
+  pageDownloads.set(p, []);
+  const state = { entries: [] as NetEntry[], starts: new Map<string, number>() };
+  pageNets.set(p, state);
+  pageLogs.set(p, []);
+  const keyOf = (method: string, url: string) => `${method} ${url}`;
+  p.on("request", (req) => {
+    try {
+      state.starts.set(keyOf(req.method(), req.url()), Date.now());
+    } catch {}
+  });
+  p.on("response", (res) => {
+    try {
+      const key = keyOf(res.request().method(), res.url());
+      const started = state.starts.get(key);
+      state.starts.delete(key);
+      state.entries.push({
+        method: res.request().method(),
+        url: res.url().slice(0, 300),
+        status: res.status(),
+        ms: started ? Date.now() - started : 0,
+      });
+      if (state.entries.length > MAX_NET) state.entries.splice(0, state.entries.length - MAX_NET);
+    } catch {}
+  });
+  const pushLog = (type: string, text: string) => {
+    try {
+      const logs = pageLogs.get(p);
+      if (!logs) return;
+      logs.push({ type, text: String(text ?? "").slice(0, 500) });
+      if (logs.length > MAX_LOGS) logs.splice(0, logs.length - MAX_LOGS);
+    } catch {}
+  };
+  p.on("console", (msg) => {
+    if (["error", "warning"].includes(msg.type())) pushLog(msg.type(), msg.text());
+  });
+  p.on("pageerror", (err) => pushLog("pageerror", err instanceof Error ? err.message : String(err)));
+  // Capture downloads to disk so the agent can verify them.
+  p.on("download", (dl) => {
+    void (async () => {
+      try {
+        const dir = join(process.cwd(), "test-results", "downloads");
+        await fs.mkdir(dir, { recursive: true });
+        const dest = join(dir, `${Date.now()}-${safeFileName(dl.suggestedFilename())}`);
+        await dl.saveAs(dest);
+        const st = await fs.stat(dest).catch(() => null);
+        const size = st?.size ?? 0;
+        if (size > MAX_DOWNLOAD_BYTES) {
+          await fs.unlink(dest).catch(() => null);
+          return;
+        }
+        const list = pageDownloads.get(p);
+        if (!list) return;
+        list.push({ name: dl.suggestedFilename(), path: relative(process.cwd(), dest), size, at: Date.now() });
+        if (list.length > MAX_DOWNLOADS) list.splice(0, list.length - MAX_DOWNLOADS);
+      } catch {}
+    })();
+  });
+}
+
+function sessionPageOf(sid?: string): Page | null {
+  if (sid) return sessions.get(sid)?.page ?? null;
+  return page;
+}
+
+type DownloadInfo = { name: string; path: string; size: number; at: number };
+const pageDownloads = new WeakMap<Page, DownloadInfo[]>();
+const MAX_DOWNLOADS = 20;
+const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
+
+function safeFileName(raw: string): string {
+  const base = raw.split(/[/\\]/).pop() ?? "download";
+  const clean = base.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 100);
+  return clean || "download";
+}
+
+type DialogInfo = { type: string; message: string; at: number };
+const pageDialogs = new WeakMap<Page, DialogInfo[]>();
+const dismissOnce = new WeakMap<Page, boolean>();
+const MAX_DIALOGS = 20;
+
+function dialogState(p: Page): DialogInfo[] {
+  let list = pageDialogs.get(p);
+  if (!list) {
+    list = [];
+    pageDialogs.set(p, list);
+    // Auto-accept so dialogs never hang a run; the text is captured for
+    // assertions. readDialog(dismissNext=true) flips the next one to dismiss.
+    p.on("dialog", (d) => {
+      try {
+        list!.push({ type: d.type(), message: d.message().slice(0, 500), at: Date.now() });
+        if (list!.length > MAX_DIALOGS) list!.splice(0, list!.length - MAX_DIALOGS);
+        const dismiss = dismissOnce.get(p) === true;
+        dismissOnce.set(p, false);
+        void (dismiss ? d.dismiss() : d.accept()).catch(() => null);
+      } catch {}
+    });
+  }
+  return list;
+}
+
+// Resolve an iframe by URL substring or frame name, waiting briefly for
+// async frames (TinyMCE et al. inject theirs after load).
+async function frameById(p: Page, frameUrl: string) {
+  const deadline = Date.now() + 8000;
+  for (;;) {
+    const frame = p.frames().find((f) => f.url().includes(frameUrl) || f.name() === frameUrl);
+    if (frame) return frame;
+    if (Date.now() > deadline) break;
+    await p.waitForTimeout(300);
+  }
+  throw new Error(`iframe with URL or name containing "${frameUrl}" not found`);
+}
+
+async function scoped(p: Page, selector: string, frameUrl?: string) {
+  if (frameUrl) {
+    return (await frameById(p, frameUrl)).locator(selector);
+  }
+  return p.locator(selector);
+}
+
+export async function uploadFile(selector: string, fileName: string, content: string, sid?: string, frameUrl?: string) {
+  const p = await pickPage(sid);
+  const loc = await scoped(p, selector, frameUrl);
+  await loc.setInputFiles({
+    name: fileName,
+    mimeType: "text/plain",
+    buffer: Buffer.from(content, "utf-8"),
+  });
+  await p.waitForTimeout(500);
+  return { url: p.url(), uploaded: fileName };
+}
+
+export async function pressKey(selector: string, key: string, sid?: string, frameUrl?: string) {
+  const p = await pickPage(sid);
+  if (selector) {
+    await (await scoped(p, selector, frameUrl)).press(key, { timeout: 10000 });
+  } else {
+    await p.keyboard.press(key);
+  }
+  await p.waitForTimeout(400);
+  return { url: p.url(), pressed: key };
+}
+
+export async function hover(selector: string, sid?: string, frameUrl?: string) {
+  const p = await pickPage(sid);
+  await (await scoped(p, selector, frameUrl)).hover({ timeout: 10000 });
+  await p.waitForTimeout(400);
+  return { url: p.url(), hovered: selector };
+}
+
+export async function drag(from: string, to: string, sid?: string, frameUrl?: string) {
+  const p = await pickPage(sid);
+  // Tabs often duplicate ids across hidden panes (strict-mode violation):
+  // prefer visible matches, fall back to the first match.
+  const resolveOne = async (sel: string) => {
+    const vis = await scoped(p, `${sel}:visible`, frameUrl);
+    if ((await vis.count().catch(() => 0)) > 0) return vis.first();
+    return (await scoped(p, sel, frameUrl)).first();
+  };
+  await (await resolveOne(from)).dragTo(await resolveOne(to), { timeout: 10000 });
+  await p.waitForTimeout(500);
+  return { url: p.url(), dragged: `${from} -> ${to}` };
+}
+
+export async function readDialog(sid?: string, dismissNext = false): Promise<{ url: string; dialogs: DialogInfo[] }> {
+  const p = sessionPageOf(sid) ?? (await pickPage(sid));
+  if (dismissNext) dismissOnce.set(p, true);
+  const dialogs = dialogState(p).slice();
+  return { url: p.url(), dialogs };
+}
+
 export async function navigate(url: string, sid?: string) {
   const p = await pickPage(sid);
   const parsed = await assertPublicTarget(url);
@@ -288,45 +480,62 @@ export async function getText(limit = 8000, sid?: string) {
   return { url: lastUrl, text: `${UNTRUSTED_BEGIN}\n${text.slice(0, limit)}\n${UNTRUSTED_END}` };
 }
 
-export async function snapshot(limit = 12000, sid?: string) {
-  const p = await pickPage(sid);
-  // Ringkas struktur interaktif: tag, role/aria (untuk locator getByRole), teks, selector hint
-  const data = await p.evaluate(() => {
-    const els = Array.from(
-      document.querySelectorAll("a, button, input, textarea, select, h1, h2, h3, [role]")
-    ).slice(0, 120);
-    return els.map((el, i) => {
-      const tag = el.tagName.toLowerCase();
-      const text = (el as HTMLElement).innerText?.slice(0, 120) ?? "";
-      const id = (el as HTMLElement).id ? `#${(el as HTMLElement).id}` : "";
-      const role = el.getAttribute("role") || "";
-      const aria =
-        el.getAttribute("aria-label") ||
-        el.getAttribute("placeholder") ||
-        (el as HTMLInputElement).name ||
-        "";
-      const type = (el as HTMLInputElement).type ? `[${(el as HTMLInputElement).type}]` : "";
-      const href = el.getAttribute("href") || "";
-      return `${i}: <${tag}${id}>${type} role=${role || tag} name="${aria}" ${text} ${href}`.trim().slice(0, 220);
-    });
+function snapshotScript(): string[] {
+  const els = Array.from(
+    document.querySelectorAll("a, button, input, textarea, select, img, h1, h2, h3, [role]")
+  ).slice(0, 120);
+  return els.map((el) => {
+    const tag = el.tagName.toLowerCase();
+    const text = (el as HTMLElement).innerText?.slice(0, 120) ?? "";
+    const id = (el as HTMLElement).id ? `#${(el as HTMLElement).id}` : "";
+    const role = el.getAttribute("role") || "";
+    const cls = (el as HTMLElement).className && typeof (el as HTMLElement).className === "string"
+      ? `.${(el as HTMLElement).className.trim().split(/\s+/).slice(0, 2).join(".")}`
+      : "";
+    const aria =
+      el.getAttribute("aria-label") ||
+      el.getAttribute("alt") ||
+      (el as HTMLInputElement).value ||
+      el.getAttribute("placeholder") ||
+      el.getAttribute("title") ||
+      (el as HTMLInputElement).name ||
+      "";
+    const type = (el as HTMLInputElement).type ? `[${(el as HTMLInputElement).type}]` : "";
+    const href = el.getAttribute("href") || "";
+    return `<${tag}${id}${cls}>${type} role=${role || tag} name="${aria}" ${text} ${href}`.trim().slice(0, 220);
   });
+}
+
+export async function snapshot(limit = 12000, sid?: string, frameUrl?: string) {
+  const p = await pickPage(sid);
+  // Ringkas struktur interaktif: tag, role/aria (untuk locator getByRole), teks, selector hint.
+  // Numbered client-side so snapshot indices stay stable for browser_click.
+  let data: string[];
+  if (frameUrl) {
+    const frame = await frameById(p, frameUrl);
+    data = await frame.evaluate(snapshotScript);
+  } else {
+    data = await p.evaluate(snapshotScript);
+  }
+  const numbered = data.map((line, i) => `${i}: ${line}`);
   lastUrl = p.url();
   const title = await p.title().catch(() => "");
-  const joined = `${UNTRUSTED_BEGIN}\n${data.join("\n").slice(0, limit)}\n${UNTRUSTED_END}`;
+  const joined = `${UNTRUSTED_BEGIN}\n${numbered.join("\n").slice(0, limit)}\n${UNTRUSTED_END}`;
   return { url: lastUrl, title, elements: joined };
 }
 
-export async function click(selector: string, sid?: string) {
+export async function click(selector: string, sid?: string, frameUrl?: string) {
   const p = await pickPage(sid);
-  // dukung index dari snapshot "12: ..." -> klik elemen ke-12
+  // dukung index dari snapshot "12: ..." -> klik elemen ke-12 (main frame saja)
   const idx = /^\d+$/.test(selector.trim())
     ? parseInt(selector.trim(), 10)
     : null;
   if (idx !== null) {
+    if (frameUrl) throw new Error("snapshot index works on the main frame only — pass a CSS selector with frameUrl");
     const ok = await p.evaluate((i) => {
       const els = Array.from(
         document.querySelectorAll(
-          "a, button, input, textarea, select, h1, h2, h3, [role]"
+          "a, button, input, textarea, select, img, h1, h2, h3, [role]"
         )
       );
       const el = els[i] as HTMLElement | undefined;
@@ -339,29 +548,51 @@ export async function click(selector: string, sid?: string) {
     await p.waitForTimeout(1200);
     return { url: p.url(), title: await p.title().catch(() => "") };
   }
-  await p.click(selector, { timeout: 10000 });
+  (await scoped(p, selector, frameUrl)).click({ timeout: 10000 });
   await p.waitForTimeout(800);
   return { url: p.url(), title: await p.title().catch(() => "") };
 }
 
-export async function typeText(selector: string, text: string, submit = false, sid?: string) {
+export async function typeText(selector: string, text: string, submit = false, sid?: string, frameUrl?: string) {
   const p = await pickPage(sid);
-  await p.fill(selector, text, { timeout: 10000 });
+  const loc = await scoped(p, selector, frameUrl);
+  // fill() only supports inputs; contenteditable/rich-text falls back to click+type.
+  const filled = await loc.fill(text, { timeout: 10000 }).then(() => true).catch(() => false);
   // verifikasi nilai benar-benar masuk (ground truth untuk model)
   const readBack = () =>
-    p
-      .$eval(
-        selector,
-        (el) => (el as HTMLInputElement).value ?? ""
+    loc
+      .evaluate(
+        (el) => (el as HTMLInputElement).value ?? el.textContent ?? ""
       )
       .catch(() => "");
   let actual = await readBack();
-  if (actual !== text) {
-    // retry: fokus + select-all + ketik manual (untuk input React yang bandel)
-    await p.click(selector, { timeout: 10000 }).catch(() => null);
+  if (!filled || actual !== text) {
+    // retry: fokus + select-all + ketik manual (untuk input React yang bandel
+    // dan rich-text editor yang tidak mendukung fill)
+    await loc.click({ timeout: 10000 }).catch(() => null);
     await p.keyboard.press("ControlOrMeta+a").catch(() => null);
     await p.keyboard.type(text, { delay: 20 });
     actual = await readBack();
+  }
+  if (actual !== text) {
+    // last resort: programmatic set + input/change events (rich-text editors
+    // yang menelan keystroke headless). Read-back tetap jadi ground truth.
+    actual = await loc
+      .evaluate(
+        (el, val: string) => {
+          const input = el as HTMLInputElement;
+          if ("value" in input && /^(input|textarea|select)$/i.test(el.tagName)) {
+            input.value = val;
+          } else {
+            (el as HTMLElement).textContent = val;
+          }
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return (el as HTMLInputElement).value ?? el.textContent ?? "";
+        },
+        text
+      )
+      .catch(() => actual);
   }
   if (submit) await p.keyboard.press("Enter");
   await p.waitForTimeout(800);
@@ -407,6 +638,7 @@ export async function scrollPage(
 export type AssertCheck =
   | { kind: "text_contains"; text: string }
   | { kind: "visible"; selector: string }
+  | { kind: "element_text"; selector: string; text: string }
   | { kind: "count"; selector: string; expected: number };
 
 // Deterministic assertions computed in code — the model reports the
@@ -422,9 +654,229 @@ export async function assertPage(check: AssertCheck, sid?: string): Promise<{ pa
     const visible = await p.isVisible(check.selector).catch(() => false);
     return { pass: visible, actual: visible ? `${check.selector} is visible` : `${check.selector} is not visible` };
   }
+  if (check.kind === "element_text") {
+    const content = await p.textContent(check.selector).catch(() => null);
+    if (content === null) return { pass: false, actual: `${check.selector} not found` };
+    const pass = content.includes(check.text);
+    return { pass, actual: pass ? `${check.selector} contains "${check.text.slice(0, 120)}"` : `${check.selector} shows "${content.slice(0, 120)}", expected "${check.text.slice(0, 120)}"` };
+  }
   const count = await p.locator(check.selector).count().catch(() => -1);
   if (count < 0) return { pass: false, actual: `${check.selector} is not a valid selector` };
   return { pass: count === check.expected, actual: `${check.selector} matched ${count} element(s), expected ${check.expected}` };
+}
+
+export async function networkLog(sid?: string, limit = 50, clear = false): Promise<{ url: string; entries: NetEntry[] }> {
+  const p = sessionPageOf(sid) ?? (await pickPage(sid));
+  const state = pageNets.get(p);
+  const entries = (state?.entries ?? []).slice(-Math.max(1, Math.min(limit || 50, MAX_NET)));
+  if (clear && state) {
+    state.entries.length = 0;
+    state.starts.clear();
+  }
+  return { url: p.url(), entries };
+}
+
+export async function consoleLog(sid?: string, clear = false): Promise<{ url: string; entries: LogEntry[] }> {
+  const p = sessionPageOf(sid) ?? (await pickPage(sid));
+  const logs = pageLogs.get(p) ?? [];
+  const entries = logs.slice();
+  if (clear) logs.length = 0;
+  return { url: p.url(), entries };
+}
+
+export async function selectOption(selector: string, value: string, sid?: string) {
+  const p = await pickPage(sid);
+  // Try option value first, then visible label.
+  let chosen = await p.selectOption(selector, { value }).catch(() => [] as string[]);
+  if (!chosen.length) {
+    chosen = await p.selectOption(selector, { label: value }).catch(() => [] as string[]);
+  }
+  if (!chosen.length) throw new Error(`option "${value}" not found in ${selector}`);
+  await p.waitForTimeout(500);
+  return { url: p.url(), selected: chosen };
+}
+
+export async function waitFor(
+  opts: { selector?: string; text?: string; timeoutMs?: number },
+  sid?: string
+) {
+  const p = await pickPage(sid);
+  const timeout = Math.max(1000, Math.min(opts.timeoutMs || 10000, 30000));
+  const started = Date.now();
+  if (opts.selector) {
+    await p.waitForSelector(opts.selector, { state: "visible", timeout });
+  } else if (opts.text) {
+    await p.waitForFunction(
+      (needle) => document.body?.innerText?.includes(needle) ?? false,
+      opts.text,
+      { timeout }
+    );
+  } else {
+    await p.waitForTimeout(Math.min(timeout, 10000));
+  }
+  return { url: p.url(), waitedMs: Date.now() - started };
+}
+
+export async function storage(
+  action: "get" | "set" | "clear",
+  area: "local" | "session" = "local",
+  key = "",
+  value = "",
+  sid?: string
+) {
+  const p = await pickPage(sid);
+  const data = await p.evaluate(
+    ({ act, store, k, v }: { act: string; store: string; k: string; v: string }) => {
+      const storage = store === "session" ? sessionStorage : localStorage;
+      if (act === "get") {
+        if (k) return { [k]: storage.getItem(k) };
+        const all: Record<string, string | null> = {};
+        for (let i = 0; i < storage.length; i++) {
+          const name = storage.key(i);
+          if (name) all[name] = storage.getItem(name);
+        }
+        return all;
+      }
+      if (act === "set") {
+        if (!k) throw new Error("key is required for storage set");
+        storage.setItem(k, v);
+        return { [k]: v };
+      }
+      if (k) storage.removeItem(k);
+      else storage.clear();
+      return { cleared: true };
+    },
+    { act: action, store: area, k: key, v: value }
+  );
+  return { url: p.url(), data };
+}
+
+export async function cookies(
+  action: "list" | "set" | "clear",
+  name = "",
+  value = "",
+  url?: string,
+  sid?: string
+) {
+  const p = await pickPage(sid);
+  const ctx = p.context();
+  if (action === "list") {
+    const all = await ctx.cookies().catch(() => []);
+    return {
+      cookies: all.map((c) => ({ name: c.name, value: c.value.slice(0, 80), domain: c.domain, path: c.path })),
+    };
+  }
+  if (action === "set") {
+    if (!name) throw new Error("name is required for cookie set");
+    await ctx.addCookies([{ name, value, url: url || p.url() }]);
+    return { set: name };
+  }
+  if (name) {
+    const remaining = (await ctx.cookies().catch(() => [])).filter((c) => c.name !== name);
+    await ctx.clearCookies();
+    if (remaining.length) await ctx.addCookies(remaining);
+    return { cleared: name };
+  }
+  await ctx.clearCookies();
+  return { cleared: true };
+}
+
+export async function readDownloads(sid?: string, clear = false): Promise<{ downloads: DownloadInfo[] }> {
+  const p = sessionPageOf(sid) ?? (await pickPage(sid));
+  const list = pageDownloads.get(p) ?? [];
+  const out = list.slice();
+  if (clear) list.length = 0;
+  return { downloads: out };
+}
+
+export type TabInfo = { index: number; url: string; title: string; current: boolean };
+
+async function listPages(sid?: string): Promise<{ pages: Page[]; setCurrent: (p: Page) => void }> {
+  if (sid) {
+    const s = sessions.get(sid);
+    if (s?.context) {
+      return {
+        pages: s.context.pages().filter((p) => !p.isClosed()),
+        setCurrent: (p) => {
+          s.page = p;
+          sessions.set(sid, s);
+        },
+      };
+    }
+    const single = s?.page;
+    return {
+      pages: single && !single.isClosed() ? [single] : [],
+      setCurrent: (p) => {
+        if (s) {
+          s.page = p;
+          sessions.set(sid, s);
+        }
+      },
+    };
+  }
+  if (context) {
+    return {
+      pages: context.pages().filter((p) => !p.isClosed()),
+      setCurrent: (p) => {
+        page = p;
+      },
+    };
+  }
+  return {
+    pages: page && !page.isClosed() ? [page] : [],
+    setCurrent: (p) => {
+      page = p;
+    },
+  };
+}
+
+function currentPageOf(pages: Page[], sid?: string): Page | null {
+  const cur = sessionPageOf(sid);
+  if (cur && pages.includes(cur)) return cur;
+  return pages[0] ?? null;
+}
+
+export async function listTabs(sid?: string): Promise<{ tabs: TabInfo[] }> {
+  if (sid && !sessions.get(sid)) await pickPage(sid);
+  else if (!sid) await pickPage(sid);
+  const { pages } = await listPages(sid);
+  const cur = currentPageOf(pages, sid);
+  const tabs: TabInfo[] = [];
+  for (let i = 0; i < pages.length; i++) {
+    tabs.push({
+      index: i,
+      url: pages[i].url(),
+      title: await pages[i].title().catch(() => ""),
+      current: pages[i] === cur,
+    });
+  }
+  return { tabs };
+}
+
+export async function selectTab(index: number, sid?: string) {
+  const { pages, setCurrent } = await listPages(sid);
+  const target = pages[index];
+  if (!target) throw new Error(`tab index ${index} not found (${pages.length} open)`);
+  await target.bringToFront().catch(() => null);
+  setCurrent(target);
+  lastUrl = target.url();
+  return { url: lastUrl, title: await target.title().catch(() => "") };
+}
+
+export async function closeTab(index: number, sid?: string) {
+  const { pages, setCurrent } = await listPages(sid);
+  if (pages.length <= 1) throw new Error("cannot close the last tab — use browser_close instead");
+  const target = pages[index];
+  if (!target) throw new Error(`tab index ${index} not found (${pages.length} open)`);
+  const wasCurrent = target === currentPageOf(pages, sid);
+  await target.close().catch(() => null);
+  const rest = pages.filter((p) => p !== target && !p.isClosed());
+  if (wasCurrent && rest.length) {
+    await rest[0].bringToFront().catch(() => null);
+    setCurrent(rest[0]);
+    lastUrl = rest[0].url();
+  }
+  return { url: lastUrl, closed: index, remaining: rest.length };
 }
 
 export async function getStatus() {

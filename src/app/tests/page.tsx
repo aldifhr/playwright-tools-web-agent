@@ -9,7 +9,19 @@ type SpecInfo = { file: string; kb: number; updatedAt: number };
 type SpecResult = { title: string; file: string; status: string; durationMs: number; error: string };
 type RunSummary = { ok: boolean; passed: number; failed: number; skipped: number; durationMs: number; results: SpecResult[]; error?: string };
 type RunLogEntry = { id: string; at: number; scope: string | null; passed: number; failed: number; skipped: number; durationMs: number; ok: boolean };
-type TestCase = { id: string; area: string; type: string; title: string; expected: string; priority: string; severity: string };
+type TestCase = { id: string; area: string; type: string; title: string; expected: string; priority: string; severity: string; result?: { status: string; actual: string; executedAt: number } };
+
+const RESULT_STATUSES = ["UNTESTED", "PASS", "FAIL", "BLOCKED", "SKIPPED"] as const;
+
+function statusColor(status: string) {
+  switch (status) {
+    case "PASS": return "text-emerald-300";
+    case "FAIL": return "text-red-300";
+    case "BLOCKED": return "text-amber-300";
+    case "SKIPPED": return "text-zinc-500";
+    default: return "text-zinc-600";
+  }
+}
 
 function fmtDate(ts: number) {
   if (!ts) return "-";
@@ -45,8 +57,11 @@ export default function TestsPage() {
   const [viewFile, setViewFile] = useState<string | null>(null);
   const [viewContent, setViewContent] = useState("");
   const [viewCases, setViewCases] = useState<TestCase[] | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, { status: string; actual: string }>>({});
+  const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   function generateViaChat() {
@@ -136,14 +151,50 @@ export default function TestsPage() {
       });
       const data = await res.json();
       setViewFile(file);
-      setViewCases(Array.isArray(data.cases) ? data.cases : []);
+      const loaded: TestCase[] = Array.isArray(data.cases) ? data.cases : [];
+      setViewCases(loaded);
+      const initial: Record<string, { status: string; actual: string }> = {};
+      for (const c of loaded) {
+        initial[c.id] = { status: c.result?.status ?? "UNTESTED", actual: c.result?.actual ?? "" };
+      }
+      setDrafts(initial);
     } catch {
       setError("Failed to load test cases.");
     }
   }
 
+  async function recordResults() {
+    if (!viewFile || !viewCases) return;
+    const changed = viewCases
+      .map((c) => ({ id: c.id, ...drafts[c.id] }))
+      .filter((r) => r.status && r.status !== "UNTESTED" && (
+        r.status !== (viewCases.find((c) => c.id === r.id)?.result?.status ?? "UNTESTED") ||
+        r.actual !== (viewCases.find((c) => c.id === r.id)?.result?.actual ?? "")
+      ));
+    if (!changed.length) {
+      setError("No changes to save — set a status first.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch("/api/tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "record", file: viewFile, results: changed }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to record results.");
+      await cases(viewFile);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to record results.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function remove(file: string) {
-    if (!window.confirm(`Delete ${file}?`)) return;
+    setPendingDelete(null);
     try {
       await fetch("/api/tests", {
         method: "POST",
@@ -261,7 +312,7 @@ export default function TestsPage() {
                       </button>
                       <button onClick={() => view(s.file)} className="rounded-lg bg-white/8 px-2.5 py-1.5 text-[11px] text-zinc-200 hover:bg-white/15">View</button>
                       <button onClick={() => cases(s.file)} className="rounded-lg bg-white/8 px-2.5 py-1.5 text-[11px] text-zinc-200 hover:bg-white/15">Cases</button>
-                      <button onClick={() => remove(s.file)} title="Delete spec" className="rounded-lg bg-white/8 px-2.5 py-1.5 text-[11px] text-zinc-400 hover:bg-white/15 hover:text-white">
+                      <button onClick={() => setPendingDelete(s.file)} title="Delete spec" className="rounded-lg bg-white/8 px-2.5 py-1.5 text-[11px] text-zinc-400 hover:bg-white/15 hover:text-white">
                         <Trash2 size={12} />
                       </button>
                     </div>
@@ -305,39 +356,111 @@ export default function TestsPage() {
               viewCases.length === 0 ? (
                 <p className="p-6 text-center text-xs text-zinc-500">No structured cases saved for this spec.</p>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                  <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-black/30 px-4 py-2.5 text-[11px]">
+                    {RESULT_STATUSES.filter((s) => s !== "UNTESTED").map((s) => {
+                      const n = viewCases.filter((c) => (c.result?.status ?? "UNTESTED") === s).length;
+                      return <span key={s} className={`${statusColor(s)}`}>{s}: {n}</span>;
+                    })}
+                    <span className="text-zinc-600">
+                      UNTESTED: {viewCases.filter((c) => (c.result?.status ?? "UNTESTED") === "UNTESTED").length}
+                    </span>
+                    <button
+                      onClick={recordResults}
+                      disabled={saving}
+                      className="ml-auto rounded-lg bg-white px-3 py-1.5 text-[11px] font-bold text-black hover:bg-zinc-200 disabled:opacity-30"
+                    >
+                      {saving ? "Saving…" : "Save results"}
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
                   <table className="w-full text-left text-[11px]">
                     <thead>
                       <tr className="border-b border-white/10 text-zinc-500">
                         <th className="px-3 py-2 font-medium">ID</th>
-                        <th className="px-3 py-2 font-medium">Area</th>
-                        <th className="px-3 py-2 font-medium">Type</th>
                         <th className="px-3 py-2 font-medium">Title</th>
                         <th className="px-3 py-2 font-medium">Priority</th>
-                        <th className="px-3 py-2 font-medium">Severity</th>
+                        <th className="px-3 py-2 font-medium">Status</th>
+                        <th className="px-3 py-2 font-medium">Actual result</th>
                       </tr>
                     </thead>
                     <tbody>
                       {viewCases.map((c) => (
                         <tr key={c.id} className="border-b border-white/5 text-zinc-300 last:border-b-0">
                           <td className="px-3 py-2 whitespace-nowrap">{c.id}</td>
-                          <td className="px-3 py-2 whitespace-nowrap">{c.area}</td>
-                          <td className="px-3 py-2 whitespace-nowrap">{c.type}</td>
-                          <td className="px-3 py-2">{c.title}</td>
+                          <td className="px-3 py-2" title={c.expected}>{c.title}</td>
                           <td className="px-3 py-2 whitespace-nowrap">{c.priority}</td>
-                          <td className="px-3 py-2 whitespace-nowrap">{c.severity}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <select
+                              value={drafts[c.id]?.status ?? "UNTESTED"}
+                              onChange={(e) => setDrafts((d) => ({ ...d, [c.id]: { status: e.target.value, actual: d[c.id]?.actual ?? "" } }))}
+                              className={`cursor-pointer rounded-lg border border-white/10 bg-black/50 px-2 py-1 text-[11px] outline-none ${statusColor(drafts[c.id]?.status ?? "UNTESTED")}`}
+                            >
+                              {RESULT_STATUSES.map((s) => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="min-w-40 px-3 py-2">
+                            <input
+                              value={drafts[c.id]?.actual ?? ""}
+                              onChange={(e) => setDrafts((d) => ({ ...d, [c.id]: { status: d[c.id]?.status ?? "UNTESTED", actual: e.target.value } }))}
+                              placeholder="Actual result…"
+                              maxLength={500}
+                              className="w-full rounded-lg border border-white/10 bg-black/50 px-2 py-1 text-[11px] text-zinc-200 outline-none placeholder:text-zinc-600"
+                            />
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
+                  </div>
+                </>
               )
             ) : null}
           </div>
         )}
 
-        {history.length > 0 && (
-          <div className="mt-6">
+        {pendingDelete && (
+          <div
+            className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
+            onClick={() => setPendingDelete(null)}
+          >
+            <div
+              className="glass w-full max-w-sm rounded-2xl p-5 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-red-400/15">
+                  <Trash2 size={16} className="text-red-300" />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-white">Delete spec?</p>
+                  <p className="truncate text-[11px] text-zinc-500">{pendingDelete}</p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs leading-relaxed text-zinc-400">
+                The spec file, its test cases, and recorded results will be permanently deleted.
+              </p>
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={() => setPendingDelete(null)}
+                  className="flex-1 rounded-xl border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-white/10 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void remove(pendingDelete)}
+                  className="flex-1 rounded-xl bg-red-400 px-4 py-2 text-xs font-bold text-black transition hover:bg-red-300 active:scale-[0.98]"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {history.length > 0 && (          <div className="mt-6">
             <h2 className="text-sm font-semibold text-white">Run history</h2>
             <div className="mt-2 overflow-hidden rounded-2xl border border-white/10">
               {history.slice().reverse().slice(0, 20).map((h) => (

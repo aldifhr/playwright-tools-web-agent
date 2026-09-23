@@ -15,7 +15,7 @@ import {
   endRun,
   RUN_CANCELLED,
 } from "@/lib/runs";
-import { createApproval, rejectRunApprovals } from "@/lib/approvals";
+import { createApproval, isAlwaysAllowed, rejectRunApprovals } from "@/lib/approvals";
 import { loadInstalledSkillsSync } from "@/lib/skills";
 import { assertPublicTarget } from "@/lib/ssrf";
 import { flushLogs } from "@/lib/tool-logs";
@@ -36,6 +36,21 @@ function thinkingFor(toolName?: string, input?: unknown) {  const values = typeo
     case "browser_screenshot": return "Capturing visual evidence for the report.";
     case "browser_go_back": return "Going back one page to verify the previous navigation path.";
     case "browser_close": return "Closing the browser after the test step is complete.";
+    case "browser_network_log": return "Logging network requests to debug the API layer.";
+    case "browser_console": return "Reading console errors for the bug report.";
+    case "browser_select": return "Selecting a dropdown option to continue the flow.";
+    case "browser_wait": return "Waiting for the expected content to appear.";
+    case "browser_storage": return "Inspecting storage for session state.";
+    case "browser_cookies": return "Checking cookies for session state.";
+    case "browser_upload": return "Uploading a file into the form.";
+    case "browser_press": return "Pressing a key to continue the flow.";
+    case "browser_hover": return "Hovering to reveal hidden content.";
+    case "browser_drag": return "Dragging an element to its target.";
+    case "browser_dialog": return "Reading a dialog message.";
+    case "browser_tabs": return "Listing open tabs to follow the popup.";
+    case "browser_tab_select": return "Switching to the new tab.";
+    case "browser_tab_close": return "Closing the extra tab.";
+    case "browser_downloads": return "Verifying the downloaded file.";
     case "browser_scroll": return "Scrolling the page to reveal content below the fold.";
     case "test_assert": return "Running a deterministic assertion to verify the expected outcome.";
     default: return "Choosing the next QA action from the latest observation.";
@@ -132,12 +147,36 @@ async function handleStream(req: NextRequest) {
   req.signal.addEventListener("abort", () => cancelRun(runId));
   const stream = new ReadableStream({
     async start(controller) {
+      let closed = false;      const safeClose = () => {
+        if (!closed) {
+          closed = true;
+          try {
+            controller.close();
+          } catch {}
+        }
+      };
       const send = (event: string, data: unknown) => {
-        controller.enqueue(
-          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-        );
+        if (closed || req.signal.aborted) return;
+        try {
+          controller.enqueue(
+            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+          );
+        } catch {
+          closed = true;
+        }
       };
       send("init", { runId });
+      // Heartbeat: SSE comment every 15s so idle stretches (long model
+      // thinking gaps with zero tool events) don't look dead to proxies
+      // or the browser. Comment frames are ignored by the client parser.
+      const heartbeat = setInterval(() => {
+        if (closed || req.signal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(`: ping ${Date.now()}\n\n`));
+        } catch {
+          closed = true;
+        }
+      }, 15_000);
 
       try {
         const delegateTask = async (task: string) => {
@@ -160,6 +199,7 @@ async function handleStream(req: NextRequest) {
             messages: [{ role: "user", content: task }],
             tools: subTools,
             stopWhen: stepCountIs(8),
+            abortSignal: req.signal,
           });
           return {
             role: "qa_subagent",
@@ -170,6 +210,7 @@ async function handleStream(req: NextRequest) {
 
         const awaitApproval = async (toolName: string, input: unknown) => {
           if (isCancelled(runId)) return false;
+          if (isAlwaysAllowed(runId)) return true;
           const { id, promise } = createApproval(runId);
           send("approval", { id, runId, tool: toolName, input });
           return promise;
@@ -177,7 +218,8 @@ async function handleStream(req: NextRequest) {
 
         const tools = getBrowserTools(
           (toolName, input) => {
-             send("status", { label: statusLabel(toolName, input), thinking: thinkingFor(toolName, input), agent: "main" });
+             lastLabel = statusLabel(toolName, input);
+             send("status", { label: lastLabel, thinking: thinkingFor(toolName, input), agent: "main" });
           },
           () => isCancelled(runId),
           delegateTask,
@@ -195,7 +237,13 @@ async function handleStream(req: NextRequest) {
         let fullText = "";
         let usage: unknown = null;
         let lastShotUrl: string | null = null;
+        let lastLabel = "Working…";
         let autoShots = 0;
+        let consecutiveTimeouts = 0;
+        const MAX_CONSECUTIVE_TIMEOUTS = 3;
+        // A single model step must never hang forever: cap it, then let the
+        // loop retry (or finish with a partial summary after repeated timeouts).
+        const STEP_TIMEOUT_MS = 120_000;
         let capped = false;
         const MAX_AUTO_SHOTS = 6;
 
@@ -204,16 +252,50 @@ async function handleStream(req: NextRequest) {
             send("aborted", {});
             return;
           }
-           const result = await generateText({
+           // Client aborts (Stop button, tab close) must cancel the model call
+           // immediately — not after the 120s step timeout.
+           const stepSignal = AbortSignal.any([req.signal, AbortSignal.timeout(STEP_TIMEOUT_MS)]);
+           const outcome = await generateText({
              model: llm,
              system: systemPrompt,
-            messages: modelMessages,
-            tools,
-            stopWhen: stepCountIs(1),
-          });
+             messages: modelMessages,
+             tools,
+             stopWhen: stepCountIs(1),
+             abortSignal: stepSignal,
+           }).then(
+             (r) => ({ ok: true as const, r }),
+             (e: unknown) => ({ ok: false as const, e })
+           );
+           if (!outcome.ok) {
+             if (isCancelled(runId)) {
+               send("aborted", {});
+               return;
+             }
+             consecutiveTimeouts += 1;
+             if (consecutiveTimeouts > MAX_CONSECUTIVE_TIMEOUTS) break;
+             send("status", {
+               label: lastLabel,
+               thinking: `Model step timed out after 120s (${consecutiveTimeouts}/3) — retrying the step.`,
+               agent: "main",
+             });
+             i -= 1;
+             continue;
+           }
+           const result = outcome.r;
+           consecutiveTimeouts = 0;
           const step = result.steps[0];
           usage = result.usage ?? usage;
           if (result.text) fullText += (fullText ? "\n" : "") + result.text;
+          // Raw model reasoning: stream the step's actual text instead of
+          // only the canned per-tool summary, so "Agent thinking" is verbatim.
+          const rawThinking = result.text.trim();
+          if (rawThinking && (step?.toolCalls?.length ?? 0) > 0) {
+            send("status", {
+              label: lastLabel,
+              thinking: rawThinking.slice(0, 800),
+              agent: "main",
+            });
+          }
 
           for (const tc of step?.toolCalls ?? []) {
             toolCalls.push({ tool: tc.toolName, input: tc.input });
@@ -268,7 +350,7 @@ async function handleStream(req: NextRequest) {
 
         send("done", {
           text:
-            fullText.trim() ||
+            fullText.trim() + (capped ? "\n\n---\nStopped early: reached the 30-step limit before finishing. Ask me to continue from where it left off." : "") ||
             (capped
               ? "Agent reached the step limit before finishing the summary. Continue from the last exploration or split the request into smaller areas."
               : "Tools finished, but the model did not send a summary."),
@@ -297,12 +379,13 @@ async function handleStream(req: NextRequest) {
           });
         }
       } finally {
+        clearInterval(heartbeat);
         rejectRunApprovals(runId);
         endRun(runId);
         leave("chat-stream");
         await browser.closeSession(runId).catch(() => null);
         await flushLogs().catch(() => null);
-        controller.close();
+        safeClose();
       }
     },
   });

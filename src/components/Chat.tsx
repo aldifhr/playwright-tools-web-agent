@@ -13,12 +13,14 @@ import {
   CircleAlert,
   ClipboardList,
   FileText,
+  FileSpreadsheet,
   FlaskConical,
   Loader2,
   ScrollText,
   Copy,
   Pencil,
   PanelRight,
+  Printer,
   RotateCcw,
   Settings as SettingsIcon,
   Sparkles,
@@ -37,8 +39,11 @@ import {
 } from "@/lib/store";
 import { useToast } from "@/components/ui/toast";
 import { useAppStore } from "@/lib/app-store";
+import { abortRun, trackRun, untrackRun } from "@/lib/chat-runs";
 import { now, type Approval, type Attachment, type LightboxState, type Msg } from "@/components/chat/types";
 import { PROGRESS_LABELS, PROVIDER_META, SUGGESTIONS, TOOL_META } from "@/components/chat/meta";
+import { COMMANDS, HELP_TEXT, parseCommand } from "@/components/chat/commands";
+import { downloadXlsx, messageToHtml, parseMarkdownTables, printMessage } from "@/components/chat/export";
 import Sidebar from "@/components/chat/Sidebar";
 import Composer from "@/components/chat/Composer";
 import SearchModal from "@/components/chat/SearchModal";
@@ -53,6 +58,9 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
   const setSettings = useAppStore((state) => state.setSettings);
   const setSessions = useAppStore((state) => state.setSessions);
   const setActiveId = useAppStore((state) => state.setActiveId);
+  const setRunning = useAppStore((state) => state.setRunning);
+  const setPendingApproval = useAppStore((state) => state.setPendingApproval);
+  const runningIds = useAppStore((state) => state.runningIds);
   const [hydrated, setHydrated] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -73,6 +81,7 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
   const [stopping, setStopping] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [approval, setApproval] = useState<Approval | null>(null);
+  const [remembering, setRemembering] = useState<number[]>([]);
   const [approving, setApproving] = useState(false);
   const [showJump, setShowJump] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -83,40 +92,59 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
   const streamRef = useRef<AbortController | null>(null);
   const thinkingHistoryRef = useRef<string[]>([]);
   const runIdRef = useRef<string | null>(null);
-  const { error: showError } = useToast();
+  const { error: showError, success: showSuccess } = useToast();
 
-  function abortStream() {
-    try {
-      streamRef.current?.abort();
-    } catch {}
-    streamRef.current = null;
-  }
-
-  async function stopRun() {
-    setStopping(true);
-    const id = runIdRef.current;
-    runIdRef.current = null;
-    abortStream();
-    // backup: sinyal eksplisit ke server (abort fetch juga memicu cancel via req.signal)
-    if (id) {
+  async function stopRun(sessionId?: string) {
+    const sid = sessionId ?? activeId ?? undefined;
+    if (!sid) return;
+    const mine = sid === activeId;
+    if (mine) {
+      setStopping(true);
+      runIdRef.current = null;
+      try {
+        streamRef.current?.abort();
+      } catch {}
+      streamRef.current = null;
+    }
+    // Runs live beyond remounts: abort the tracked controller, then tell
+    // the server explicitly (abort fetch also triggers cancel via req.signal).
+    abortRun(sid);
+    const runId = useAppStore.getState().runningIds[sid];
+    setRunning(sid, null);
+    setPendingApproval(sid, null);
+    if (runId) {
       try {
         await fetch("/api/chat/cancel", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ runId: id }),
+          body: JSON.stringify({ runId }),
         });
       } catch {}
     }
   }
 
-  async function respondApproval(approved: boolean) {    const pending = approval;
+  // Leaving a session never kills its run — but a pending approval would hang
+  // it forever, so deny explicitly and let the agent continue another way.
+  function denyLeavingApproval(leavingId: string | null) {
+    if (!leavingId) return;
+    const pending = useAppStore.getState().pendingApprovals[leavingId];
+    if (!pending) return;
+    setPendingApproval(leavingId, null);
+    fetch("/api/chat/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runId: pending.runId, id: pending.id, approved: false }),
+    }).catch(() => {});
+  }
+  async function respondApproval(approved: boolean, always = false) {
+    const pending = approval;
     if (!pending || approving) return;
     setApproving(true);
     try {
       await fetch("/api/chat/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runId: pending.runId, id: pending.id, approved }),
+        body: JSON.stringify({ runId: pending.runId, id: pending.id, approved, always }),
       });
     } catch {}
     setApproval(null);
@@ -340,17 +368,51 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
     }
   }
 
-function copyMessage(content: string) {
-  navigator.clipboard?.writeText(content).catch(() => {});
-}
+  function copyMessage(content: string) {
+    navigator.clipboard?.writeText(content).catch(() => {});
+  }
+
+  async function rememberRun(userContent: string, assistantContent: string, key: number) {
+    const apiKey = settings.keys[settings.provider] ?? "";
+    if (!apiKey.trim()) {
+      showError("API key missing", "Add an API key in /settings first.");
+      return;
+    }
+    setRemembering((prev) => [...prev, key]);
+    try {
+      const strip = (c: string) => c.split("\n\nAttached files:\n")[0].slice(0, 2000);
+      const res = await fetch("/api/memory/consolidate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: settings.provider,
+          model: settings.model,
+          apiKey,
+          baseUrl: settings.baseUrls[settings.provider] ?? "",
+          messages: [
+            { role: "user", content: strip(userContent) },
+            { role: "assistant", content: strip(assistantContent) },
+          ],
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Failed to remember run.");
+      const saved = (d.saved ?? []).length;
+      if (saved) showSuccess("Run remembered", `${saved} fact(s) saved to memory.`);
+      else showError("Nothing new", "No new durable facts in this run.");
+    } catch (e) {
+      showError("Remember failed", e instanceof Error ? e.message : "Failed.");
+    } finally {
+      setRemembering((prev) => prev.filter((x) => x !== key));
+    }
+  }
 
 // Attached file dumps ride along to the model but stay hidden in the UI:
 // split the visible prompt from the attached file sections.
 function splitFiles(content: string): { text: string; files: { name: string; body: string }[] } {
   const marker = "\n\nAttached files:\n";
   const idx = content.indexOf(marker);
-  if (idx < 0) return { text: content, files: [] };
-  const text = content.slice(0, idx);
+  if (idx < 0) return { text: content, files: [] };  const text = content.slice(0, idx);
   const rest = content.slice(idx + marker.length);
   const files: { name: string; body: string }[] = [];
   const header = /^--- (.+) ---$/gm;
@@ -367,7 +429,31 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
 }
 
   async function send(text?: string) {
-    const draft = (text ?? input).trim();
+    const raw = (text ?? input).trim();
+    let draft = raw;
+    // Slash commands expand into full QA prompts before sending.
+    if (draft.startsWith("/")) {
+      const parsed = parseCommand(draft);
+      const def = parsed ? COMMANDS.find((c) => c.name === parsed.name) : undefined;
+      if (!parsed || (!def && parsed.name !== "help")) {
+        setError(`Unknown command. Available: ${COMMANDS.map((c) => `/${c.name}`).join(", ")}`);
+        return;
+      }
+      if (parsed.name === "help" || !def) {
+        // Answered locally — no LLM call.
+        const targetId = activeId;
+        if (!targetId) return;
+        commitMessages(targetId, [
+          ...messages,
+          { role: "user", content: draft, time: now() },
+          { role: "assistant", content: HELP_TEXT, model, time: now() },
+        ], draft);
+        setInput("");
+        if (taRef.current) taRef.current.style.height = "auto";
+        return;
+      }
+      draft = def.build(parsed.args);
+    }
     const MAX_ATTACH_CHARS = settings.attachmentCap || 20_000;
     const fileContext = attachments.length
       ? "\n\nAttached files:\n" + attachments.map((file) => {
@@ -397,9 +483,9 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
     setApproval(null);
     setError("");
     setLastFailedPrompt(null);
-    const next: Msg[] = [...base, { role: "user", content, time: now() }];
+    const next: Msg[] = [...base, { role: "user", content: raw.startsWith("/") ? raw : content, time: now() }];
     // Title from the typed prompt only — never from the attached file dump.
-    const titleSource = draft.trim() ? draft : attachments.length ? `Attached: ${attachments[0].name}` : content;
+    const titleSource = raw.trim() ? raw : attachments.length ? `Attached: ${attachments[0].name}` : content;
     commitMessages(targetId, next, titleSource);
     setInput("");
     setAttachments([]);
@@ -418,13 +504,20 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
     });
     const ctrl = new AbortController();
     streamRef.current = ctrl;
+    // Tracked module-wide so the run survives remounts (session/tab switches).
+    trackRun(targetId, ctrl);
+    setRunning(targetId, "");
     try {
+      // The bubble shows the raw command; the model receives the expansion.
+      const apiMessages = next.map((m, i) =>
+        i === next.length - 1 && m.role === "user" ? { role: m.role, content } : { role: m.role, content: m.content }
+      );
       const res = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: ctrl.signal,
         body: JSON.stringify({
-          messages: next.map((m) => ({ role: m.role, content: m.content })),
+          messages: apiMessages,
           provider,
           model,
           apiKey,
@@ -460,7 +553,9 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
           if (!ev || dm === undefined) continue;
           if (ev === "init") {
             try {
-              runIdRef.current = (JSON.parse(dm) as { runId?: string }).runId ?? null;
+              const rid = (JSON.parse(dm) as { runId?: string }).runId ?? null;
+              runIdRef.current = rid;
+              if (rid) setRunning(targetId, rid);
             } catch {}
           } else if (ev === "status") {
             if (sessionRef.current !== sess) return;
@@ -480,7 +575,7 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                 const label = d.label.toLowerCase();
                 const stage = /test|saving|save|run|assert/.test(label)
                   ? 3
-                  : /opening|scanning|reading|clicking|typing|screenshot|scrolling|back|browser/.test(label)
+                  : /opening|scanning|reading|clicking|typing|screenshot|scrolling|logging|console|select|waiting|storage|cookies|back|browser/.test(label)
                     ? 2
                     : /report|finish|complete/.test(label)
                       ? 4
@@ -517,6 +612,7 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
               const d = JSON.parse(dm) as { id?: string; runId?: string; tool?: string; input?: unknown };
               if (d.id && d.runId) {
                 setApproval({ id: d.id, runId: d.runId, tool: d.tool ?? "tool", input: d.input });
+                setPendingApproval(targetId, { runId: d.runId, id: d.id });
                 requestAnimationFrame(() => {
                   if (autoScrollRef.current) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
                 });
@@ -535,7 +631,8 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
         }
       }
       if (aborted) return; // di-interrupt user → berhenti diam-diam
-      if (sessionRef.current !== sess) return; // user sudah ganti sesi → abaikan
+      // No sess guard here: a run that outlives a session switch still
+      // commits to its own target session (background completion).
       if (!finalData) throw new Error("Stream was interrupted");
       setProgressStage(4);
       commitMessages(targetId, [
@@ -556,12 +653,24 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
       setLastFailedPrompt(null);
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
-      if (sessionRef.current !== sess) return;
-      const msg = e instanceof Error ? e.message : "Failed";
-      setError(msg);
-      setLastFailedPrompt(content);
+      const raw = e instanceof Error ? e.message : "Failed";
+      // Chunked-encoding/network breaks mid-stream (server reload, proxy cut):
+      // surface as an interrupted stream with retry, not a raw TypeError.
+      const msg = /incomplete|chunked|network|fetch|terminated|aborted/i.test(raw)
+        ? "Stream interrupted — the server connection broke mid-run. Retry to continue."
+        : raw;
+      if (sessionRef.current === sess) {
+        setError(msg);
+        setLastFailedPrompt(content);
+      }
+      // Background failures still surface globally via toast.
       showError("Chat Error", msg);
     } finally {
+      // Module-wide cleanup always runs (even after remounts); local UI
+      // state only touches the session this send() belongs to.
+      untrackRun(targetId);
+      setRunning(targetId, null);
+      setPendingApproval(targetId, null);
       if (streamRef.current === ctrl) streamRef.current = null;
       runIdRef.current = null;
       if (sessionRef.current === sess) setLoading(false);
@@ -576,13 +685,15 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
   function openChat(id: string) {
     if (id === activeId) return;
     sessionRef.current += 1;
-    cancelActiveRun();
+    // The previous session's run keeps going in the background;
+    // only a hanging approval is denied so it never blocks forever.
+    denyLeavingApproval(activeId);
     router.push(`/chat/${encodeURIComponent(id)}`);
   }
 
   function newChat() {
     sessionRef.current += 1; // batalkan hasil request yang masih jalan
-    cancelActiveRun();
+    denyLeavingApproval(activeId);
     const n = newSession();
     const list = [n, ...sessions];
     setSessions(list);
@@ -598,7 +709,9 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
 
   function deleteSession(id: string) {
     sessionRef.current += 1;
-    cancelActiveRun();
+    // The deleted session's run (if any) keeps going until it tries to
+    // commit — commitMessages then no-ops since the id is gone from the list.
+    denyLeavingApproval(id);
     const list = sessions.filter((s) => s.id !== id);
     setSessions(list);
     saveSessions(list);
@@ -627,10 +740,12 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
         sidebarOpen={sidebarOpen}
         sessions={visibleSessions}
         activeId={activeId}
+        runningIds={runningIds}
         onClose={() => setSidebarOpen(false)}
         onNewChat={newChat}
         onSwitchSession={openChat}
         onDeleteSession={deleteSession}
+        onStopSession={(id) => void stopRun(id)}
       />
 
       {/* ── MAIN ── */}
@@ -829,12 +944,48 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="glass rounded-2xl rounded-tl-md p-4">
-                              <div className="prose-sm text-sm leading-relaxed text-zinc-100 [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-black [&_pre]:p-3 [&_pre]:border [&_pre]:border-white/10">
-                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                              <div className="prose-sm text-sm leading-relaxed text-zinc-100 [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-black [&_pre]:p-3 [&_pre]:border [&_pre]:border-white/10 [&_table]:w-full [&_th]:whitespace-nowrap [&_td]:align-top">
+                                 <ReactMarkdown
+                                   remarkPlugins={[remarkGfm]}
+                                   components={{
+                                     table: ({ children }) => (
+                                       <div className="overflow-x-auto rounded-xl border border-white/10">
+                                         <table className="w-max min-w-full border-collapse text-xs">{children}</table>
+                                       </div>
+                                     ),
+                                   }}
+                                 >{m.content}</ReactMarkdown>
                               </div>
                               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                                 <button type="button" onClick={() => copyMessage(m.content)} className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-zinc-500 hover:bg-white/10 hover:text-white"><Copy size={11} /> Copy</button>
                                 {messages[i - 1]?.role === "user" && <button type="button" onClick={() => send(messages[i - 1].content)} className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-zinc-500 hover:bg-white/10 hover:text-white"><RotateCcw size={11} /> Regenerate</button>}
+                                {messages[i - 1]?.role === "user" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void rememberRun(messages[i - 1].content, m.content, i)}
+                                    disabled={remembering.includes(i)}
+                                    title="Extract durable facts from this run into memory"
+                                    className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-zinc-500 hover:bg-white/10 hover:text-white disabled:opacity-50"
+                                  >
+                                    <Brain size={11} /> {remembering.includes(i) ? "Remembering…" : "Remember run"}
+                                  </button>
+                                )}
+                                {parseMarkdownTables(m.content).length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void downloadXlsx(`farayagent-${new Date().toISOString().slice(0, 10)}`, parseMarkdownTables(m.content))}
+                                    className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-zinc-500 hover:bg-white/10 hover:text-white"
+                                  >
+                                    <FileSpreadsheet size={11} /> XLSX
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => printMessage(m.content.split("\n")[0].slice(0, 60) || "FarayAgent report", messageToHtml(m.content))}
+                                  className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-zinc-500 hover:bg-white/10 hover:text-white"
+                                >
+                                  <Printer size={11} /> PDF
+                                </button>
                               </div>
                               {!!m.artifacts?.length && <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
                                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Workflow</p>
@@ -954,7 +1105,7 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                                       <span className="ml-2 truncate text-[11px] text-zinc-400">{s.url}</span>
                                        <span className="ml-auto text-[10px] text-zinc-600 group-hover:text-white">open ⤢</span>
                                     </div>
-                                    <img src={s.image} alt={s.url} className="w-full grayscale transition duration-300 group-hover:scale-[1.01]" />
+                                    <img src={s.image} alt={s.url} className="w-full transition duration-300 group-hover:scale-[1.01]" />
                                   </button>
                                 ))}
                               </div>
@@ -993,7 +1144,7 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                               {thinkingOpen && <div className="mt-1.5 flex flex-col gap-1.5">{thinkingHistory.length ? thinkingHistory.map((item, index) => <p key={`${item}-${index}`} className="text-xs leading-relaxed text-zinc-400">{item}</p>) : <p className="text-xs text-zinc-500">Waiting for agent activity…</p>}</div>}
                            </div>}
                            {!!approval && (
-                             <ApprovalCard approval={approval} approving={approving} onRespond={respondApproval} />
+                             <ApprovalCard approval={approval} approving={approving} onRespond={(ok) => void respondApproval(ok)} onAlwaysAllow={() => void respondApproval(true, true)} />
                            )}
                          </div>
                       </div>

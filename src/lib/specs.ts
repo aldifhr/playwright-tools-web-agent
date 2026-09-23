@@ -251,6 +251,100 @@ export async function deleteCases(file: string) {
   try {
     await fs.unlink(join(DIR, casesFile(file)));
   } catch {}
+  try {
+    await fs.unlink(join(DIR, resultsFile(file)));
+  } catch {}
+}
+
+export type CaseStatus = "UNTESTED" | "PASS" | "FAIL" | "BLOCKED" | "SKIPPED";
+
+export type CaseResult = {
+  id: string;
+  status: CaseStatus;
+  actual: string;
+  executedAt: number;
+};
+
+export type CaseWithResult = TestCase & { result: CaseResult };
+
+const STATUSES: CaseStatus[] = ["UNTESTED", "PASS", "FAIL", "BLOCKED", "SKIPPED"];
+
+export function resultsFile(file: string): string {
+  const safe = sanitizeFile(file);
+  return safe.replace(/\.spec\.ts$/, ".results.json");
+}
+
+function emptyResult(id: string): CaseResult {
+  return { id, status: "UNTESTED", actual: "", executedAt: 0 };
+}
+
+export async function readCaseResults(file: string): Promise<Record<string, CaseResult>> {
+  const path = join(DIR, resultsFile(file));
+  try {
+    const raw = await fs.readFile(path, "utf-8");
+    const obj = JSON.parse(raw) as unknown;
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
+    const out: Record<string, CaseResult> = {};
+    for (const [id, r] of Object.entries(obj as Record<string, unknown>)) {
+      const rec = r as Partial<CaseResult>;
+      out[id] = {
+        id,
+        status: STATUSES.includes(rec.status as CaseStatus) ? (rec.status as CaseStatus) : "UNTESTED",
+        actual: String(rec.actual ?? "").slice(0, 500),
+        executedAt: Number(rec.executedAt) || 0,
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+// Manual execution tracking: record PASS/FAIL/BLOCKED/SKIPPED per case id.
+// Unknown ids are rejected so results always line up with saved cases.
+export async function saveCaseResults(
+  file: string,
+  results: { id: string; status: string; actual?: string }[]
+): Promise<{ saved: string; recorded: number; summary: Record<CaseStatus, number> }> {
+  if (!Array.isArray(results) || !results.length) {
+    throw new Error("results cannot be empty");
+  }
+  if (results.length > 50) throw new Error("maximum 50 results at once");
+  const cases = await readCases(file);
+  if (!cases.length) throw new Error("no saved cases for this file — use test_plan first");
+  const known = new Set(cases.map((c) => c.id));
+  const now = Date.now();
+  const current = await readCaseResults(file);
+  for (const r of results) {
+    const id = String(r.id ?? "");
+    if (!known.has(id)) throw new Error(`unknown case id: ${id || "(empty)"}`);
+    const status = String(r.status ?? "").toUpperCase() as CaseStatus;
+    if (!STATUSES.includes(status) || status === "UNTESTED") {
+      throw new Error(`invalid status for ${id}: use PASS, FAIL, BLOCKED, or SKIPPED`);
+    }
+    current[id] = {
+      id,
+      status,
+      actual: String(r.actual ?? "").slice(0, 500),
+      executedAt: now,
+    };
+  }
+  await fs.mkdir(DIR, { recursive: true });
+  const name = resultsFile(file);
+  await fs.writeFile(join(DIR, name), JSON.stringify(current, null, 2) + "\n", "utf-8");
+  const summary = Object.values(current).reduce(
+    (acc, r) => {
+      acc[r.status] += 1;
+      return acc;
+    },
+    { UNTESTED: 0, PASS: 0, FAIL: 0, BLOCKED: 0, SKIPPED: 0 } as Record<CaseStatus, number>
+  );
+  return { saved: name, recorded: results.length, summary };
+}
+
+export async function readCasesWithResults(file: string): Promise<CaseWithResult[]> {
+  const [cases, results] = await Promise.all([readCases(file), readCaseResults(file)]);
+  return cases.map((c) => ({ ...c, result: results[c.id] ?? emptyResult(c.id) }));
 }
 
 type JsonSuite = {

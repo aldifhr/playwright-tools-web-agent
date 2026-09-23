@@ -36,6 +36,36 @@ export function statusLabel(toolName: string, input: unknown): string {
       return "Asserting…";
     case "browser_close":
       return "Closing browser…";
+    case "browser_network_log":
+      return "Logging network…";
+    case "browser_console":
+      return "Reading console…";
+    case "browser_select":
+      return "Selecting option…";
+    case "browser_wait":
+      return "Waiting…";
+    case "browser_storage":
+      return "Reading storage…";
+    case "browser_cookies":
+      return "Managing cookies…";
+    case "browser_upload":
+      return "Uploading file…";
+    case "browser_press":
+      return "Pressing key…";
+    case "browser_hover":
+      return "Hovering…";
+    case "browser_drag":
+      return "Dragging…";
+    case "browser_dialog":
+      return "Reading dialogs…";
+    case "browser_tabs":
+      return "Listing tabs…";
+    case "browser_tab_select":
+      return "Switching tab…";
+    case "browser_tab_close":
+      return "Closing tab…";
+    case "browser_downloads":
+      return "Checking downloads…";
     case "test_save":
       return "Saving test…";
     case "test_run":

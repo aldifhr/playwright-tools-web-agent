@@ -15,6 +15,7 @@ export type ToolLog = {
   input: unknown;
   output?: unknown;
   error?: string;
+  runId?: string;
 };
 
 const SENSITIVE = /password|token|secret|api[-_]?key|authorization|cookie/i;

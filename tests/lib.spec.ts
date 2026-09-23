@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { sanitizeFile, casesFile } from "../src/lib/specs";
+import { sanitizeFile, casesFile, saveCases, saveCaseResults, readCasesWithResults, deleteSpec } from "../src/lib/specs";
 import { saveFact } from "../src/lib/memory";
 import { assertPublicTarget } from "../src/lib/ssrf";
 import { isReadOnlyCommand } from "../src/lib/browser";
@@ -83,6 +83,26 @@ test("concurrent slots guard expensive endpoints", () => {
   leave(slot);
   expect(tryEnter(slot, 1)).toBe(true);
   leave(slot);
+});
+
+test("manual results round-trip with validation", async () => {
+  const file = "tmp-manual.spec.ts";
+  await saveCases(file, [
+    { id: "TC-001", area: "Login", type: "Positive", title: "valid login", preconditions: "", testData: "", steps: ["open page"], expected: "dashboard", priority: "High", severity: "High" },
+  ]);
+  try {
+    await expect(saveCaseResults(file, [{ id: "TC-999", status: "PASS" }])).rejects.toThrow(/unknown case id/i);
+    await expect(saveCaseResults(file, [{ id: "TC-001", status: "MAYBE" }])).rejects.toThrow(/invalid status/i);
+    const saved = await saveCaseResults(file, [{ id: "TC-001", status: "pass", actual: "dashboard shown" }]);
+    expect(saved.summary.PASS).toBe(1);
+    const merged = await readCasesWithResults(file);
+    expect(merged[0].result.status).toBe("PASS");
+    expect(merged[0].result.actual).toBe("dashboard shown");
+  } finally {
+    await deleteSpec(file).catch(() => null);
+    const { deleteCases } = await import("../src/lib/specs");
+    await deleteCases(file);
+  }
 });
 
 test("auth is open without token, enforced with token", () => {

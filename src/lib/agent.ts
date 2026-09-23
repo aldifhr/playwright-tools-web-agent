@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as browser from "./browser";
-import { saveSpec, runSpec, saveCases, savePlanDocument, recordRun, listSpecs } from "./specs";
+import { saveSpec, runSpec, saveCases, saveCaseResults, savePlanDocument, recordRun, listSpecs } from "./specs";
 import { saveFact, forgetFact } from "./memory";
 import { RUN_CANCELLED } from "./runs";
 import { recordToolLog } from "./tool-logs";
@@ -88,6 +88,7 @@ export function getBrowserTools(
           durationMs: Date.now() - started,
           input: loggedInput,
           output,
+          runId: sid,
         });
         return output;
       } catch (error) {
@@ -100,6 +101,7 @@ export function getBrowserTools(
           durationMs: Date.now() - started,
           input: loggedInput,
           error: error instanceof Error ? error.message : "tool failed",
+          runId: sid,
         });
         throw error;
       }
@@ -116,8 +118,12 @@ export function getBrowserTools(
     }),
     browser_snapshot: tool({
       description: "Inspect the active page structure (tag, role, accessible name, text)",
-      inputSchema: z.object({}),
-      execute: wrap("browser_snapshot", async () => browser.snapshot(12000, sid)),
+      inputSchema: z.object({
+        frameUrl: z.string().optional().describe("inspect inside the iframe whose URL contains this text"),
+      }),
+      execute: wrap("browser_snapshot", async ({ frameUrl }: { frameUrl?: string }) =>
+        browser.snapshot(12000, sid, frameUrl)
+      ),
     }),
     browser_get_text: tool({
       description: "Read the visible page text",
@@ -127,9 +133,12 @@ export function getBrowserTools(
     browser_click: tool({
        description:
         "Click an element using a CSS selector or numeric snapshot index",
-      inputSchema: z.object({ selector: z.string() }),
-      execute: wrap("browser_click", async ({ selector }: { selector: string }) =>
-        browser.click(selector, sid)
+      inputSchema: z.object({
+        selector: z.string(),
+        frameUrl: z.string().optional().describe("click inside the iframe whose URL contains this text (CSS selector only, no numeric index)"),
+      }),
+      execute: wrap("browser_click", async ({ selector, frameUrl }: { selector: string; frameUrl?: string }) =>
+        browser.click(selector, sid, frameUrl)
       ),
     }),
     browser_type: tool({
@@ -138,6 +147,7 @@ export function getBrowserTools(
         selector: z.string(),
         text: z.string(),
         submit: z.boolean().optional().default(false),
+        frameUrl: z.string().optional().describe("type inside the iframe whose URL contains this text"),
       }),
       execute: wrap(
         "browser_type",
@@ -145,11 +155,13 @@ export function getBrowserTools(
           selector,
           text,
           submit,
+          frameUrl,
         }: {
           selector: string;
           text: string;
           submit?: boolean;
-        }) => browser.typeText(selector, text, submit, sid)
+          frameUrl?: string;
+        }) => browser.typeText(selector, text, submit, sid, frameUrl)
       ),
     }),
     browser_screenshot: tool({
@@ -183,19 +195,23 @@ export function getBrowserTools(
     test_assert: tool({
       description: "Run a deterministic assertion against the live page and get a PASS/FAIL result. Use this to verify outcomes instead of eyeballing.",
       inputSchema: z.object({
-        kind: z.enum(["text_contains", "visible", "count"]).describe("text_contains needs text; visible and count need selector; count also needs expected"),
+        kind: z.enum(["text_contains", "visible", "element_text", "count"]).describe("text_contains needs text; visible needs selector; element_text needs selector + text; count needs selector + expected"),
         selector: z.string().optional().default(""),
         text: z.string().optional().default(""),
         expected: z.number().int().min(0).optional().default(1),
       }),
       execute: wrap(
         "test_assert",
-        async ({ kind, selector, text, expected }: { kind: "text_contains" | "visible" | "count"; selector?: string; text?: string; expected?: number }) => {
+        async ({ kind, selector, text, expected }: { kind: "text_contains" | "visible" | "element_text" | "count"; selector?: string; text?: string; expected?: number }) => {
           if (kind === "text_contains") {
             if (!text) throw new Error("text is required for text_contains");
             return browser.assertPage({ kind, text }, sid);
           }
-          if (!selector) throw new Error("selector is required for visible/count");
+          if (!selector) throw new Error("selector is required for visible/element_text/count");
+          if (kind === "element_text") {
+            if (!text) throw new Error("text is required for element_text");
+            return browser.assertPage({ kind, selector, text }, sid);
+          }
           return kind === "visible"
             ? browser.assertPage({ kind, selector }, sid)
             : browser.assertPage({ kind, selector, expected: expected ?? 1 }, sid);
@@ -206,6 +222,198 @@ export function getBrowserTools(
       description: "Close the browser",
       inputSchema: z.object({}),
       execute: wrap("browser_close", async () => browser.closeBrowser()),
+    }),
+    browser_upload: tool({
+      description: "Upload a text file into a file input (content is sent inline)",
+      inputSchema: z.object({
+        selector: z.string().describe("file input CSS selector"),
+        fileName: z.string().describe("file name, e.g. notes.txt"),
+        content: z.string().max(20_000).describe("file content"),
+        frameUrl: z.string().optional(),
+      }),
+      execute: wrap(
+        "browser_upload",
+        async ({ selector, fileName, content, frameUrl }: { selector: string; fileName: string; content: string; frameUrl?: string }) =>
+          browser.uploadFile(selector, fileName, content, sid, frameUrl)
+      ),
+    }),
+    browser_press: tool({
+      description: "Press a keyboard key, optionally focused on an element (Enter, Tab, Escape, ArrowDown, ...)",
+      inputSchema: z.object({
+        key: z.string(),
+        selector: z.string().optional().default(""),
+        frameUrl: z.string().optional(),
+      }),
+      execute: wrap(
+        "browser_press",
+        async ({ key, selector, frameUrl }: { key: string; selector?: string; frameUrl?: string }) =>
+          browser.pressKey(key, selector || "", sid, frameUrl)
+      ),
+    }),
+    browser_hover: tool({
+      description: "Hover over an element to reveal menus, tooltips, or hover states",
+      inputSchema: z.object({
+        selector: z.string(),
+        frameUrl: z.string().optional(),
+      }),
+      execute: wrap(
+        "browser_hover",
+        async ({ selector, frameUrl }: { selector: string; frameUrl?: string }) =>
+          browser.hover(selector, sid, frameUrl)
+      ),
+    }),
+    browser_drag: tool({
+      description: "Drag an element onto another (sliders, drag-and-drop zones, sortable lists)",
+      inputSchema: z.object({
+        from: z.string().describe("drag source CSS selector"),
+        to: z.string().describe("drop target CSS selector"),
+        frameUrl: z.string().optional(),
+      }),
+      execute: wrap(
+        "browser_drag",
+        async ({ from, to, frameUrl }: { from: string; to: string; frameUrl?: string }) =>
+          browser.drag(from, to, sid, frameUrl)
+      ),
+    }),
+    browser_dialog: tool({
+      description: "Read captured JS dialogs (alert/confirm/prompt); dialogs auto-accept unless dismissNext is set",
+      inputSchema: z.object({
+        dismissNext: z.boolean().optional().default(false),
+      }),
+      execute: wrap("browser_dialog", async ({ dismissNext }: { dismissNext?: boolean }) =>
+        browser.readDialog(sid, !!dismissNext)
+      ),
+    }),
+    browser_tabs: tool({
+      description: "List open browser tabs (index, URL, title) after popups or target=_blank links",
+      inputSchema: z.object({}),
+      execute: wrap("browser_tabs", async () => browser.listTabs(sid)),
+    }),
+    browser_tab_select: tool({
+      description: "Switch to a tab by index so later tools act on it",
+      inputSchema: z.object({
+        index: z.number().int().min(0),
+      }),
+      execute: wrap("browser_tab_select", async ({ index }: { index: number }) =>
+        browser.selectTab(index, sid)
+      ),
+    }),
+    browser_tab_close: tool({
+      description: "Close a tab by index (cannot close the last one)",
+      inputSchema: z.object({
+        index: z.number().int().min(0),
+      }),
+      execute: wrap("browser_tab_close", async ({ index }: { index: number }) =>
+        browser.closeTab(index, sid)
+      ),
+    }),
+    browser_downloads: tool({
+      description: "List files captured from downloads, with saved paths and sizes",
+      inputSchema: z.object({
+        clear: z.boolean().optional().default(false),
+      }),
+      execute: wrap("browser_downloads", async ({ clear }: { clear?: boolean }) =>
+        browser.readDownloads(sid, !!clear)
+      ),
+    }),
+    browser_network_log: tool({
+      description: "List recent network requests (method, URL, status, duration) for debugging APIs",
+      inputSchema: z.object({
+        limit: z.number().int().min(1).max(200).optional().default(50),
+        clear: z.boolean().optional().default(false),
+      }),
+      execute: wrap(
+        "browser_network_log",
+        async ({ limit, clear }: { limit?: number; clear?: boolean }) =>
+          browser.networkLog(sid, limit ?? 50, !!clear)
+      ),
+    }),
+    browser_console: tool({
+      description: "Read console errors, warnings, and page errors for bug reproduction",
+      inputSchema: z.object({
+        clear: z.boolean().optional().default(false),
+      }),
+      execute: wrap("browser_console", async ({ clear }: { clear?: boolean }) =>
+        browser.consoleLog(sid, !!clear)
+      ),
+    }),
+    browser_select: tool({
+      description: "Choose a dropdown option by value or visible label",
+      inputSchema: z.object({
+        selector: z.string(),
+        value: z.string().describe("option value or visible label"),
+      }),
+      execute: wrap(
+        "browser_select",
+        async ({ selector, value }: { selector: string; value: string }) =>
+          browser.selectOption(selector, value, sid)
+      ),
+    }),
+    browser_wait: tool({
+      description: "Wait for an element, page text, or a short delay before continuing",
+      inputSchema: z.object({
+        selector: z.string().optional().default(""),
+        text: z.string().optional().default(""),
+        timeoutMs: z.number().int().min(1000).max(30000).optional().default(10000),
+      }),
+      execute: wrap(
+        "browser_wait",
+        async ({ selector, text, timeoutMs }: { selector?: string; text?: string; timeoutMs?: number }) =>
+          browser.waitFor(
+            {
+              selector: selector || undefined,
+              text: text || undefined,
+              timeoutMs: timeoutMs ?? 10000,
+            },
+            sid
+          )
+      ),
+    }),
+    browser_storage: tool({
+      description: "Read/write localStorage or sessionStorage (auth tokens, user prefs)",
+      inputSchema: z.object({
+        action: z.enum(["get", "set", "clear"]).optional().default("get"),
+        area: z.enum(["local", "session"]).optional().default("local"),
+        key: z.string().optional().default(""),
+        value: z.string().optional().default(""),
+      }),
+      execute: wrap(
+        "browser_storage",
+        async ({
+          action,
+          area,
+          key,
+          value,
+        }: {
+          action?: "get" | "set" | "clear";
+          area?: "local" | "session";
+          key?: string;
+          value?: string;
+        }) => browser.storage(action ?? "get", area ?? "local", key ?? "", value ?? "", sid)
+      ),
+    }),
+    browser_cookies: tool({
+      description: "List, set, or clear cookies (session persistence)",
+      inputSchema: z.object({
+        action: z.enum(["list", "set", "clear"]).optional().default("list"),
+        name: z.string().optional().default(""),
+        value: z.string().optional().default(""),
+        url: z.string().optional(),
+      }),
+      execute: wrap(
+        "browser_cookies",
+        async ({
+          action,
+          name,
+          value,
+          url,
+        }: {
+          action?: "list" | "set" | "clear";
+          name?: string;
+          value?: string;
+          url?: string;
+        }) => browser.cookies(action ?? "list", name ?? "", value ?? "", url, sid)
+      ),
     }),
     browser_bash: tool({
        description: "Run a restricted command without a shell (npm, node, grep, ls, and other safe commands)",
@@ -332,6 +540,30 @@ export function getBrowserTools(
         "List saved spec files (.spec.ts) in tests/",
       inputSchema: z.object({}),
       execute: wrap("test_list", async () => listSpecs()),
+    }),
+    test_record: tool({
+      description:
+        "Record manual test execution results (PASS, FAIL, BLOCKED, SKIPPED plus actual result) for saved case ids. Use after guiding the user through manual testing.",
+      inputSchema: z.object({
+        file: z
+          .string()
+          .describe("base file name, e.g. login-saucedemo.spec.ts"),
+        results: z.array(z.object({
+          id: z.string().describe("case id, e.g. TC-001"),
+          status: z.enum(["PASS", "FAIL", "BLOCKED", "SKIPPED"]),
+          actual: z.string().optional().default(""),
+        })).min(1).max(50),
+      }),
+      execute: wrap(
+        "test_record",
+        async ({
+          file,
+          results,
+        }: {
+          file: string;
+          results: { id: string; status: string; actual?: string }[];
+        }) => saveCaseResults(file, results)
+      ),
     }),
   };
 }

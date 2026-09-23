@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, MessageSquare, Plus, Trash2, X } from "lucide-react";
+import { Bot, Loader2, MessageSquare, Plus, Square, Trash2, X } from "lucide-react";
 import { fmtTime } from "@/lib/store";
 import type { Session } from "@/lib/store";
 
@@ -8,20 +8,24 @@ type SidebarProps = {
   sidebarOpen: boolean;
   sessions: Session[];
   activeId: string | null;
+  runningIds: Record<string, string>;
   onClose: () => void;
   onNewChat: () => void;
   onSwitchSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
+  onStopSession: (id: string) => void;
 };
 
 export default function Sidebar({
   sidebarOpen,
   sessions,
   activeId,
+  runningIds,
   onClose,
   onNewChat,
   onSwitchSession,
   onDeleteSession,
+  onStopSession,
 }: SidebarProps) {
   return (
     <aside
@@ -65,6 +69,7 @@ export default function Sidebar({
         <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
           {sessions.map((s) => {
             const isActive = s.id === activeId;
+            const running = runningIds[s.id] !== undefined;
             return (
               <div
                 key={s.id}
@@ -75,18 +80,34 @@ export default function Sidebar({
                     : "border-transparent hover:bg-white/5"
                 }`}
               >
-                <MessageSquare
-                  size={15}
-                  className={`shrink-0 ${isActive ? "text-white" : "text-zinc-600"}`}
-                />
+                {running ? (
+                  <Loader2 size={15} className="shrink-0 animate-spin text-white" />
+                ) : (
+                  <MessageSquare
+                    size={15}
+                    className={`shrink-0 ${isActive ? "text-white" : "text-zinc-600"}`}
+                  />
+                )}
                 <div className="min-w-0 flex-1">
                   <p className={`truncate text-[13px] font-medium ${isActive ? "text-white" : "text-zinc-400"}`}>
                     {s.title}
                   </p>
                   <p className="text-[10px] text-zinc-600">
-                    {s.messages.length} messages • {fmtTime(s.updatedAt)}
+                    {running ? "running in background…" : `${s.messages.length} messages • ${fmtTime(s.updatedAt)}`}
                   </p>
                 </div>
+                {running && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onStopSession(s.id);
+                    }}
+                    title="Stop this run"
+                    className="shrink-0 rounded-lg bg-white p-1.5 text-black transition hover:bg-zinc-200"
+                  >
+                    <Square size={11} fill="currentColor" />
+                  </button>
+                )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();

@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { listSpecs, readSpec, deleteSpec, deleteCases, readCases, runSpec, recordRun, loadLastRun, loadRunLog } from "@/lib/specs";
+import { listSpecs, readSpec, deleteSpec, deleteCases, readCasesWithResults, saveCaseResults, runSpec, recordRun, loadLastRun, loadRunLog } from "@/lib/specs";
 import { guardApi } from "@/lib/api-guard";
 
 const TestsBodySchema = z.object({
-  action: z.enum(["get", "delete", "cases", "run"]).optional(),
+  action: z.enum(["get", "delete", "cases", "results", "record", "run"]).optional(),
   file: z.string().max(200).optional(),
+  results: z.array(z.object({
+    id: z.string().max(20),
+    status: z.string().max(10),
+    actual: z.string().max(500).optional(),
+  })).max(50).optional(),
 });
 
 export const maxDuration = 300;
@@ -61,7 +66,22 @@ export async function POST(req: Request) {
         if (!body.file) {
            return NextResponse.json({ error: "file is required" }, { status: 400 });
         }
-        return NextResponse.json({ cases: await readCases(body.file) });
+        return NextResponse.json({ cases: await readCasesWithResults(body.file) });
+      }
+      case "results": {
+        if (!body.file) {
+           return NextResponse.json({ error: "file is required" }, { status: 400 });
+        }
+        return NextResponse.json({ cases: await readCasesWithResults(body.file) });
+      }
+      case "record": {
+        if (!body.file) {
+           return NextResponse.json({ error: "file is required" }, { status: 400 });
+        }
+        if (!body.results?.length) {
+           return NextResponse.json({ error: "results are required" }, { status: 400 });
+        }
+        return NextResponse.json(await saveCaseResults(body.file, body.results));
       }
       case "run": {
         const summary = await runSpec(body.file || undefined);

@@ -12,6 +12,8 @@ export type ApprovalRequest = {
 
 const pending = new Map<string, (approved: boolean) => void>();
 const TTL_MS = 10 * 60_000;
+// Runs the user marked "always allow": sensitive tools skip the prompt.
+const alwaysAllow = new Set<string>();
 
 function key(runId: string, id: string) {
   return `${runId}:${id}`;
@@ -54,4 +56,13 @@ export function rejectRunApprovals(runId: string) {
       resolvePromise(false);
     }
   }
+  alwaysAllow.delete(String(runId ?? ""));
+}
+
+export function setAlwaysAllow(runId: string) {
+  alwaysAllow.add(String(runId ?? ""));
+}
+
+export function isAlwaysAllowed(runId: string): boolean {
+  return alwaysAllow.has(String(runId ?? ""));
 }

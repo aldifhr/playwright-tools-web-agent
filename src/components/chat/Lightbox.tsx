@@ -46,7 +46,7 @@ export default function Lightbox({ lightbox, onClose, onStep }: LightboxProps) {
         <img
           src={lightbox.list[lightbox.i]?.image}
           alt="full"
-          className="animate-fade-up max-h-[80vh] w-full rounded-2xl border border-white/15 object-contain shadow-2xl grayscale"
+          className="animate-fade-up max-h-[80vh] w-full rounded-2xl border border-white/15 object-contain shadow-2xl"
         />
       </div>
     </div>

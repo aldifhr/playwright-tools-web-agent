@@ -6,9 +6,10 @@ type ApprovalCardProps = {
   approval: Approval;
   approving: boolean;
   onRespond: (approved: boolean) => void;
+  onAlwaysAllow: () => void;
 };
 
-export default function ApprovalCard({ approval, approving, onRespond }: ApprovalCardProps) {
+export default function ApprovalCard({ approval, approving, onRespond, onAlwaysAllow }: ApprovalCardProps) {
   return (
     <div className="animate-fade-up mt-3 rounded-2xl border border-amber-300/30 bg-amber-300/8 p-4">
       <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-300">Approval required</p>
@@ -24,6 +25,15 @@ export default function ApprovalCard({ approval, approving, onRespond }: Approva
           className="flex-1 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black transition hover:bg-zinc-200 active:scale-[0.98] disabled:opacity-50"
         >
           {approving ? "Sending…" : "Approve"}
+        </button>
+        <button
+          type="button"
+          onClick={onAlwaysAllow}
+          disabled={approving}
+          title="Approve this and all later sensitive tools in this run"
+          className="flex-1 rounded-xl border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-xs font-bold text-emerald-200 transition hover:bg-emerald-300/20 active:scale-[0.98] disabled:opacity-50"
+        >
+          Always allow
         </button>
         <button
           type="button"

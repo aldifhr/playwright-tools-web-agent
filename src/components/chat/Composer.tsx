@@ -6,6 +6,7 @@ import { FileText, Loader2, Send, Square, X } from "lucide-react";
 import { PROVIDERS, type ProviderId } from "@/lib/providers";
 import type { Settings } from "@/lib/store";
 import type { Attachment, Msg } from "@/components/chat/types";
+import { COMMANDS } from "@/components/chat/commands";
 
 type ComposerProps = {
   input: string;
@@ -52,6 +53,10 @@ export default function Composer({
   saveSettings,
   stopRun,
 }: ComposerProps) {
+  const showCommands = input.startsWith("/") && !input.includes("\n");
+  const matches = showCommands
+    ? COMMANDS.filter((c) => c.name.startsWith(input.slice(1).split(/\s/)[0].toLowerCase()))
+    : [];
   return (
     <div className="px-4 pb-5 sm:px-8">
       <form
@@ -59,8 +64,24 @@ export default function Composer({
           e.preventDefault();
           send();
         }}
-        className="mx-auto w-full max-w-2xl"
+        className="relative mx-auto w-full max-w-2xl"
       >
+        {!!matches.length && (
+          <div className="absolute bottom-full left-0 mb-2 w-full overflow-hidden rounded-2xl border border-white/15 bg-zinc-950 shadow-2xl">
+            {matches.map((c) => (
+              <button
+                key={c.name}
+                type="button"
+                onClick={() => setInput(`/${c.name} `)}
+                className="block w-full px-4 py-2.5 text-left transition hover:bg-white/10"
+              >
+                <span className="text-xs font-bold text-white">/{c.name}</span>
+                <span className="ml-2 text-[11px] text-zinc-500">{c.desc}</span>
+                <span className="mt-0.5 block text-[10px] text-zinc-600">{c.usage}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div
           className="glass rounded-3xl p-2 shadow-2xl shadow-black focus-within:border-white/40"
           onDragOver={(event) => event.preventDefault()}

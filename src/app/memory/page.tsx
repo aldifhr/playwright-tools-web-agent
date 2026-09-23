@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Brain, Loader2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Brain, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
+import { loadSessions, loadSettings } from "@/lib/store";
 
 export default function MemoryPage() {
   const [facts, setFacts] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [consolidating, setConsolidating] = useState(false);
   const { success, error: showError } = useToast();
 
   async function refresh() {
@@ -57,6 +59,46 @@ export default function MemoryPage() {
     }
   }
 
+  async function consolidate() {
+    setConsolidating(true);
+    try {
+      const settings = loadSettings();
+      const apiKey = settings.keys[settings.provider] ?? "";
+      if (!apiKey.trim()) throw new Error("Add an API key in /settings first");
+      const messages = loadSessions()
+        .flatMap((s) => s.messages)
+        .filter((m) => m.content.trim())
+        .slice(-30)
+        .map((m) => ({
+          role: m.role,
+          content: m.content.split("\n\nAttached files:\n")[0].slice(0, 2000),
+        }));
+      if (!messages.length) throw new Error("No chat history to consolidate yet");
+      const r = await fetch("/api/memory/consolidate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: settings.provider,
+          model: settings.model,
+          apiKey,
+          baseUrl: settings.baseUrls[settings.provider] ?? "",
+          messages,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Consolidation failed");
+      const saved = (d.saved ?? []).length;
+      success(
+        "Memory consolidated",
+        saved ? `${saved} new fact(s) saved` : "Nothing new worth remembering"
+      );
+      refresh();
+    } catch (e) {
+      showError("Error", e instanceof Error ? e.message : "Consolidation failed");
+    } finally {
+      setConsolidating(false);
+    }
+  }
   async function forget(fact: string) {
     const query = fact.split(" ").slice(0, 4).join(" ");
     try {
@@ -103,6 +145,15 @@ export default function MemoryPage() {
                FarayAgent long-term memory • stored in MEMORY.md ({facts.length}/100)
             </p>
           </div>
+          <button
+            onClick={consolidate}
+            disabled={consolidating}
+            title="Extract durable facts from recent chats"
+            className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-bold text-black transition hover:bg-zinc-200 active:scale-[0.98] disabled:opacity-30"
+          >
+            {consolidating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+            {consolidating ? "Reading…" : "Consolidate"}
+          </button>
         </motion.div>
 
         <motion.form
