@@ -735,6 +735,9 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
     // The deleted session's run (if any) keeps going until it tries to
     // commit — commitMessages then no-ops since the id is gone from the list.
     denyLeavingApproval(id);
+    try {
+      localStorage.removeItem(`chat-draft:${id}`);
+    } catch {}
     const list = sessions.filter((s) => s.id !== id);
     setSessions(list);
     saveSessions(list);
@@ -1191,9 +1194,9 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                             Retry
                           </button>
                      )}
-                     {showJump && <button type="button" onClick={() => scrollToLatest()} className="sticky bottom-3 left-1/2 z-10 mx-auto flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-zinc-900 px-3 py-1.5 text-[11px] text-white shadow-xl">Jump to latest <ChevronDown size={12} /></button>}
                       </div>
-                    )}
+                     )}
+                    {showJump && !error && <button type="button" onClick={() => scrollToLatest()} className="sticky bottom-3 left-1/2 z-10 mx-auto flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-zinc-900 px-3 py-1.5 text-[11px] text-white shadow-xl">Jump to latest <ChevronDown size={12} /></button>}
                     <div ref={bottomRef} />
                   </div>
                 )}

@@ -73,7 +73,16 @@ export default function Sidebar({
             return (
               <div
                 key={s.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => onSwitchSession(s.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSwitchSession(s.id);
+                  }
+                }}
+                aria-label={`Open chat: ${s.title}`}
                 className={`group flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition active:scale-[0.98] ${
                   isActive
                     ? "border-white/40 bg-white/10"

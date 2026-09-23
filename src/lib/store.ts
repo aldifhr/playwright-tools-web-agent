@@ -10,6 +10,8 @@ export type ChatMsg = {
   content: string;
   toolCalls?: ToolCall[];
   screenshots?: Shot[];
+  artifacts?: { kind: string; file: string; meta: Record<string, unknown> }[];
+  thinking?: (string | { text: string; phase?: string })[];
   model?: string;
   skills?: string[];
   usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };

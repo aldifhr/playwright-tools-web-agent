@@ -84,6 +84,31 @@ const StreamBodySchema = z.object({
 export async function POST(req: NextRequest) {
   const blocked = guardApi(req, { scope: "chat-stream", limit: 30 });
   if (blocked) return blocked;
+  // Validate BEFORE acquiring a concurrency slot — every return below must
+  // not leak the slot. The slot is taken only when a stream will start.
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return Response.json({ error: "invalid request body" }, { status: 400 });
+  }
+  const pre = StreamBodySchema.safeParse(rawBody);
+  if (!pre.success) {
+    return Response.json({ error: "invalid request body" }, { status: 400 });
+  }
+  if (pre.data.baseUrl.trim()) {
+    if (pre.data.baseUrl.trim().length > 500) {
+      return Response.json({ error: "base URL is too long" }, { status: 400 });
+    }
+    try {
+      await assertPublicTarget(pre.data.baseUrl.trim(), { allowLocal: true });
+    } catch (e) {
+      return Response.json(
+        { error: e instanceof Error ? e.message : "invalid base URL" },
+        { status: 400 }
+      );
+    }
+  }
   if (!tryEnter("chat-stream", 3)) {
     return Response.json(
       { error: "too many concurrent runs — try again shortly" },
@@ -92,42 +117,27 @@ export async function POST(req: NextRequest) {
   }
   // NOTE: the slot is released in the stream's finally block below, not here —
   // handleStream returns the Response immediately while the run continues.
-  return handleStream(req);
+  // The body was already validated above, so this path cannot exit early.
+  return handleStream(req, pre.data);
 }
 
-async function handleStream(req: NextRequest) {
-  let rawBody: unknown;
-  try {
-    rawBody = await req.json();
-  } catch {
-    return Response.json({ error: "invalid request body" }, { status: 400 });
+async function handleStream(
+  req: NextRequest,
+  body: {
+    messages: { role: "user" | "assistant"; content: string }[];
+    provider: "openai" | "anthropic";
+    model?: string;
+    apiKey: string;
+    baseUrl: string;
   }
-  const parsed = StreamBodySchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return Response.json({ error: "invalid request body" }, { status: 400 });
-  }
-
+) {
   const {
     messages,
     provider = "openai",
     model,
     apiKey = "",
     baseUrl = "",
-  } = parsed.data;
-  // The server forwards the user's key to this URL — same validation as /api/models.
-  if (baseUrl.trim()) {
-    if (baseUrl.trim().length > 500) {
-      return Response.json({ error: "base URL is too long" }, { status: 400 });
-    }
-    try {
-      await assertPublicTarget(baseUrl.trim(), { allowLocal: true });
-    } catch (e) {
-      return Response.json(
-        { error: e instanceof Error ? e.message : "invalid base URL" },
-        { status: 400 }
-      );
-    }
-  }
+  } = body;
 
   const chosenModel = model || PROVIDERS[provider].models[0];
   // The prompt is stable for the lifetime of a run. Rebuilding it per tool

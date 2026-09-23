@@ -1,5 +1,6 @@
 // Server-only: registrasi run agent yang bisa di-interrupt.
 // Satu run = satu request /api/chat/stream. tools + loop cek flag ini.
+import { randomUUID } from "node:crypto";
 import { rejectRunApprovals } from "./approvals";
 
 const runs = new Map<string, { cancelled: boolean; createdAt: number }>();
@@ -18,8 +19,7 @@ function prune() {
 
 export function createRun(): string {
   prune();
-  const id =
-    Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  const id = randomUUID().replace(/-/g, "");
   runs.set(id, { cancelled: false, createdAt: Date.now() });
   return id;
 }

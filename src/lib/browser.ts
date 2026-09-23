@@ -762,8 +762,9 @@ export async function cookies(
   const ctx = p.context();
   if (action === "list") {
     const all = await ctx.cookies().catch(() => []);
+    // Values stay truncated: full session tokens must not land in tool logs.
     return {
-      cookies: all.map((c) => ({ name: c.name, value: c.value.slice(0, 80), domain: c.domain, path: c.path })),
+      cookies: all.map((c) => ({ name: c.name, value: c.value.slice(0, 32), domain: c.domain, path: c.path })),
     };
   }
   if (action === "set") {

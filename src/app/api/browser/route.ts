@@ -65,8 +65,7 @@ export async function POST(req: Request) {
         await bw.closeBrowser();
         return NextResponse.json({ closed: true });
       default: {
-        const status = await bw.getStatus();
-        return NextResponse.json(status);
+        return NextResponse.json({ error: "unknown action" }, { status: 400 });
       }
     }
   } catch (e) {

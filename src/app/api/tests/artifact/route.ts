@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { join, normalize, sep } from "node:path";
 import { guardApi } from "@/lib/api-guard";
 
@@ -27,7 +27,12 @@ export async function GET(req: Request) {
   }
 
   try {
-    const buf = await readFile(abs);
+    // Resolve symlinks: a symlink inside test-results must not escape it.
+    const real = await realpath(abs).catch(() => null);
+    if (!real || !(real + sep).startsWith(root) && real !== join(process.cwd(), "test-results")) {
+      return NextResponse.json({ error: "invalid path" }, { status: 400 });
+    }
+    const buf = await readFile(real);
     const ext = norm.split(".").pop()?.toLowerCase();
     const type =
       ext === "webm"
@@ -37,7 +42,8 @@ export async function GET(req: Request) {
           : ext === "zip"
             ? "application/zip"
             : "application/octet-stream";
-    const name = norm.split(sep).pop() ?? "artifact";
+    const rawName = norm.split(sep).pop() ?? "artifact";
+    const name = rawName.replace(/["\r\n]/g, "").slice(0, 120) || "artifact";
     const dl = searchParams.get("download") === "1";
     return new NextResponse(new Uint8Array(buf), {
       headers: {
