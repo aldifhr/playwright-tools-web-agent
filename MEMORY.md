@@ -24,3 +24,5 @@
 - manhwa.aldifhr.fun Notifications page has 3-day dispatch timer, tabs: All/Chapters/Log, search, Refresh button, chapter list with cover images
 - sauce-demo product image link locator: #item_{id}_img_link
 - sauce-demo product title link locator: #item_{id}_title_link
+- qabrains.com ecommerce login uses #email, #password, button.btn-submit.uppercase
+- qabrains.com ecommerce products page at /ecommerce with 9 products (ids 1-9), has sort dropdown, search/filter

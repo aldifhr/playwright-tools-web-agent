@@ -26,6 +26,13 @@ export const maxDuration = 300;
 // The per-step 120s timeout and the concurrent-run cap remain as backstops.
 const MAX_STEPS = Math.max(10, Number(process.env.MAX_AGENT_STEPS) || 100);
 
+function phaseFor(toolName?: string): string {
+  if (!toolName) return "Explore";
+  if (toolName.startsWith("test_")) return toolName === "test_run" ? "Testing" : "Artifacts";
+  if (toolName.startsWith("memory_")) return "Memory";
+  return "Explore";
+}
+
 function thinkingFor(toolName?: string, input?: unknown) {  const values = typeof input === "object" && input ? input as Record<string, unknown> : {};
   const target = typeof values.url === "string" ? ` ${values.url}` : " the current target";
   const selector = typeof values.selector === "string" ? ` ${values.selector}` : " the discovered element";
@@ -185,7 +192,7 @@ async function handleStream(req: NextRequest) {
           if (isCancelled(runId)) throw new Error(RUN_CANCELLED);
            send("status", { label: "Delegating QA subtask…", thinking: "Breaking the browser work into a smaller QA subtask." });
           const subTools = getBrowserTools(
-             (toolName, input) => send("status", { label: `Sub-agent: ${statusLabel(toolName, input)}`, thinking: thinkingFor(toolName, input), agent: "sub" }),
+             (toolName, input) => send("status", { label: `Sub-agent: ${statusLabel(toolName, input)}`, thinking: thinkingFor(toolName, input), phase: phaseFor(toolName), agent: "sub" }),
             () => isCancelled(runId),
             undefined,
             undefined,
@@ -221,7 +228,8 @@ async function handleStream(req: NextRequest) {
         const tools = getBrowserTools(
           (toolName, input) => {
              lastLabel = statusLabel(toolName, input);
-             send("status", { label: lastLabel, thinking: thinkingFor(toolName, input), agent: "main" });
+             lastPhase = phaseFor(toolName);
+             send("status", { label: lastLabel, thinking: thinkingFor(toolName, input), phase: lastPhase, agent: "main" });
           },
           () => isCancelled(runId),
           delegateTask,
@@ -240,6 +248,7 @@ async function handleStream(req: NextRequest) {
         let usage: unknown = null;
         let lastShotUrl: string | null = null;
         let lastLabel = "Working…";
+        let lastPhase = "Explore";
         let autoShots = 0;
         let consecutiveTimeouts = 0;
         const MAX_CONSECUTIVE_TIMEOUTS = 3;
@@ -253,6 +262,16 @@ async function handleStream(req: NextRequest) {
           if (isCancelled(runId)) {
             send("aborted", {});
             return;
+          }
+          // Budget warning at 75%: nudge the model to stop exploring and
+          // start writing the final structured report (P2 — no silent caps).
+          if (i === Math.floor(MAX_STEPS * 0.75)) {
+            send("status", {
+              label: lastLabel,
+              thinking: "Budget at 75% — finish exploring now and write the final report with the required sections. Do not start new exploration threads.",
+              phase: lastPhase,
+              agent: "main",
+            });
           }
            // Client aborts (Stop button, tab close) must cancel the model call
            // immediately — not after the 120s step timeout.
@@ -295,6 +314,7 @@ async function handleStream(req: NextRequest) {
             send("status", {
               label: lastLabel,
               thinking: rawThinking.slice(0, 800),
+              phase: lastPhase,
               agent: "main",
             });
           }

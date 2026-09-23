@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { listSpecs, readSpec, deleteSpec, deleteCases, readCasesWithResults, saveCaseResults, saveCases, saveSpec, runSpec, recordRun, loadLastRun, loadRunLog } from "@/lib/specs";
+import { listSpecs, readSpec, deleteSpec, deleteCases, readCasesWithResults, saveCaseResults, saveCases, saveSpec, clearRunLog, runSpec, recordRun, loadLastRun, loadRunLog } from "@/lib/specs";
 import { guardApi } from "@/lib/api-guard";
 
 const TestsBodySchema = z.object({
-  action: z.enum(["get", "delete", "cases", "results", "record", "import", "save", "run"]).optional(),
+  action: z.enum(["get", "delete", "cases", "results", "record", "import", "save", "clear-history", "run"]).optional(),
   file: z.string().max(200).optional(),
   content: z.string().max(200_000).optional(),
   results: z.array(z.object({
@@ -119,6 +119,9 @@ export async function POST(req: Request) {
         const summary = await runSpec(body.file || undefined);
         await recordRun(body.file || null, summary);
         return NextResponse.json(summary);
+      }
+      case "clear-history": {
+        return NextResponse.json(await clearRunLog());
       }
       default:
         return NextResponse.json({ tests: await listSpecs() });

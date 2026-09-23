@@ -57,8 +57,8 @@ export type QaPlanDocument = {
 };
 
 export async function savePlanDocument(file: string, plan: QaPlanDocument) {
-  const safe = basename(String(file ?? "").trim()).replace(/\.md$/i, "") || "test-plan";
-  if (!/^[a-zA-Z0-9-_]+$/.test(safe)) throw new Error("invalid test plan filename");
+  const safe = planName(file);
+  if (!/^[a-zA-Z0-9-_]+(\/[a-zA-Z0-9-_]+)?$/.test(safe)) throw new Error("invalid test plan filename");
   const bullet = (items: string[]) => items.length ? items.map((item) => `- ${item}`).join("\n") : "- TBD";
   const table = (headers: string[], rows: string[][]) => [
     `| ${headers.join(" | ")} |`,
@@ -103,7 +103,7 @@ export async function savePlanDocument(file: string, plan: QaPlanDocument) {
     table(["Name", "Role", "Signature"], plan.approval.map((item) => [item.name, item.role, item.signature])),
     "",
   ].join("\n");
-  await fs.mkdir(DIR, { recursive: true });
+  await ensureDirFor(safe);
   const saved = `${safe}.md`;
   await fs.writeFile(join(DIR, saved), content, "utf-8");
   const tbdCount = (content.match(/\bTBD\b/gi) ?? []).length;
@@ -128,9 +128,43 @@ export function sanitizeFile(name: string): string {
   return base.endsWith(".spec.ts") ? base : `${base}.spec.ts`;
 }
 
+// Scoped path: "file" or "group/file". Groups keep tests/ tidy per site
+// or feature (e.g. "qabrains-ecommerce/login.spec.ts"). Each segment is
+// strictly validated; "..", ".", and deeper nesting are rejected.
+export function sanitizePath(name: string): string {
+  const parts = String(name ?? "")
+    .trim()
+    .split("/")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 1 || parts.length > 2) {
+    throw new Error("invalid path — use file.spec.ts or group/file.spec.ts");
+  }
+  if (parts.length === 2) {
+    const [scope, file] = parts;
+    if (!/^[a-zA-Z0-9-_]+$/.test(scope)) {
+      throw new Error("invalid group name — use letters, numbers, hyphens, underscores");
+    }
+    return `${scope}/${sanitizeFile(file)}`;
+  }
+  return sanitizeFile(parts[0]);
+}
+
+export function planName(file: string): string {
+  const rel = sanitizePath(String(file ?? "").trim().replace(/\.md$/i, ""));
+  const base = basename(rel).replace(/\.spec\.ts$/, "") || "test-plan";
+  const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+  return dir ? `${dir}/${base}` : base;
+}
+
+async function ensureDirFor(rel: string) {
+  const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+  await fs.mkdir(dir ? join(DIR, dir) : DIR, { recursive: true });
+}
+
 export async function listSpecs(): Promise<SpecInfo[]> {
   await fs.mkdir(DIR, { recursive: true });
-  const files = (await fs.readdir(DIR)).filter((f) => f.endsWith(".spec.ts"));
+  const files = await walkSpecs(DIR);
   const infos = await Promise.all(
     files.map(async (file) => {
       const st = await fs.stat(join(DIR, file));
@@ -144,8 +178,24 @@ export async function listSpecs(): Promise<SpecInfo[]> {
   return infos.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+async function walkSpecs(dir: string, prefix = ""): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const out: string[] = [];
+  for (const entry of entries) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      if (/^[a-zA-Z0-9-_]+$/.test(entry.name)) {
+        out.push(...(await walkSpecs(join(dir, entry.name), rel)));
+      }
+    } else if (entry.name.endsWith(".spec.ts")) {
+      out.push(rel);
+    }
+  }
+  return out;
+}
+
 export async function readSpec(file: string): Promise<string> {
-  const safe = sanitizeFile(file);
+  const safe = sanitizePath(file);
   return fs.readFile(join(DIR, safe), "utf-8");
 }
 
@@ -153,7 +203,7 @@ export async function saveSpec(
   file: string,
   content: string
 ): Promise<{ saved: string; lines: number }> {
-  const safe = sanitizeFile(file);
+  const safe = sanitizePath(file);
   if (!content || !content.trim()) throw new Error("test content cannot be empty");
   if (content.length > MAX_CONTENT) throw new Error("test content is too large");
   if (!content.includes("@playwright/test")) {
@@ -162,7 +212,7 @@ export async function saveSpec(
   if (!/\btest\s*\(/.test(content)) {
     throw new Error("spec must contain at least one test() call");
   }
-  await fs.mkdir(DIR, { recursive: true });
+  await ensureDirFor(safe);
   await fs.writeFile(join(DIR, safe), content.trim() + "\n", "utf-8");
   return { saved: safe, lines: content.trim().split("\n").length };
 }
@@ -181,7 +231,7 @@ export type TestCase = {
 };
 
 export function casesFile(file: string): string {
-  const safe = sanitizeFile(file);
+  const safe = sanitizePath(file);
   return safe.replace(/\.spec\.ts$/, ".cases.json");
 }
 
@@ -223,8 +273,8 @@ export async function saveCases(
   if (clean.some((c) => !c.id || !c.title || !c.steps.length || !c.expected)) {
     throw new Error("each case requires an id, title, steps, and expected result");
   }
-  await fs.mkdir(DIR, { recursive: true });
   const name = casesFile(file);
+  await ensureDirFor(name);
   await fs.writeFile(join(DIR, name), JSON.stringify(clean, null, 2) + "\n", "utf-8");
   const areas = clean.reduce<Record<string, number>>((summary, testCase) => {
     summary[testCase.area] = (summary[testCase.area] ?? 0) + 1;
@@ -242,7 +292,7 @@ export async function saveCases(
 }
 
 export async function deleteSpec(file: string): Promise<{ deleted: string }> {
-  const safe = sanitizeFile(file);
+  const safe = sanitizePath(file);
   await fs.unlink(join(DIR, safe));
   return { deleted: safe };
 }
@@ -270,7 +320,7 @@ export type CaseWithResult = TestCase & { result: CaseResult };
 const STATUSES: CaseStatus[] = ["UNTESTED", "PASS", "FAIL", "BLOCKED", "SKIPPED"];
 
 export function resultsFile(file: string): string {
-  const safe = sanitizeFile(file);
+  const safe = sanitizePath(file);
   return safe.replace(/\.spec\.ts$/, ".results.json");
 }
 
@@ -329,8 +379,8 @@ export async function saveCaseResults(
       executedAt: now,
     };
   }
-  await fs.mkdir(DIR, { recursive: true });
   const name = resultsFile(file);
+  await ensureDirFor(name);
   await fs.writeFile(join(DIR, name), JSON.stringify(current, null, 2) + "\n", "utf-8");
   const summary = Object.values(current).reduce(
     (acc, r) => {
@@ -374,7 +424,7 @@ function collect(suites: JsonSuite[] | undefined, out: SpecResult[]) {
         const r = t.results?.[0];
         out.push({
           title: spec.title,
-          file: spec.file ? basename(spec.file) : "",
+          file: spec.file ? relative(DIR, spec.file) : "",
           status: r?.status ?? "unknown",
           durationMs: Math.round(r?.duration ?? 0),
           error: (
@@ -427,8 +477,14 @@ export async function loadLastRun(): Promise<Record<string, RunSummary>> {
   }
 }
 
-export async function loadRunLog(): Promise<RunLogEntry[]> {
+export async function clearRunLog(): Promise<{ cleared: boolean }> {
   try {
+    await fs.unlink(RUN_LOG);
+  } catch {}
+  return { cleared: true };
+}
+
+export async function loadRunLog(): Promise<RunLogEntry[]> {  try {
     const raw = await fs.readFile(RUN_LOG, "utf-8");
     const arr = JSON.parse(raw) as unknown;
     if (!Array.isArray(arr)) return [];
@@ -549,7 +605,7 @@ export function runSpec(file?: string): Promise<RunSummary> {
     };
     let safe: string | null = null;
     try {
-      if (file) safe = sanitizeFile(file);
+      if (file) safe = sanitizePath(file);
     } catch (e) {
       finish({
         ok: false,
@@ -571,9 +627,7 @@ export function runSpec(file?: string): Promise<RunSummary> {
       let targets: string[];
       try {
         await fs.mkdir(DIR, { recursive: true });
-        targets = safe
-          ? [safe]
-          : (await fs.readdir(DIR)).filter((f) => f.endsWith(".spec.ts"));
+        targets = safe ? [safe] : await walkSpecs(DIR);
       } catch (e) {
         finish({
           ok: false,

@@ -41,7 +41,7 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { useAppStore } from "@/lib/app-store";
 import { abortRun, trackRun, untrackRun } from "@/lib/chat-runs";
-import { now, type Approval, type Attachment, type LightboxState, type Msg } from "@/components/chat/types";
+import { now, type Approval, type Attachment, type LightboxState, type Msg, type ThinkingEntry } from "@/components/chat/types";
 import { PROGRESS_LABELS, PROVIDER_META, SUGGESTIONS, TOOL_META } from "@/components/chat/meta";
 import { COMMANDS, HELP_TEXT, parseCommand } from "@/components/chat/commands";
 import { downloadXlsx, messageToHtml, parseMarkdownTables, printMessage } from "@/components/chat/export";
@@ -51,6 +51,7 @@ import Composer from "@/components/chat/Composer";
 import SearchModal from "@/components/chat/SearchModal";
 import Lightbox from "@/components/chat/Lightbox";
 import ApprovalCard from "@/components/chat/ApprovalCard";
+import ThinkingList from "@/components/chat/ThinkingList";
 
 export default function Chat({ sessionId: lockedSessionId }: { sessionId?: string }) {
   const router = useRouter();
@@ -76,7 +77,7 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
   const [searchQuery, setSearchQuery] = useState("");
   const [statusText, setStatusText] = useState(IDLE_STATUS);
   const [thinkingText, setThinkingText] = useState("");
-  const [thinkingHistory, setThinkingHistory] = useState<string[]>([]);
+  const [thinkingHistory, setThinkingHistory] = useState<ThinkingEntry[]>([]);
   const [thinkingOpen, setThinkingOpen] = useState(true);
   const [progressStage, setProgressStage] = useState(0);
   const [agentMode, setAgentMode] = useState<"main" | "sub">("main");
@@ -92,7 +93,7 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
   const taRef = useRef<HTMLTextAreaElement>(null);
   const sessionRef = useRef(0);
   const streamRef = useRef<AbortController | null>(null);
-  const thinkingHistoryRef = useRef<string[]>([]);
+  const thinkingHistoryRef = useRef<ThinkingEntry[]>([]);
   const runIdRef = useRef<string | null>(null);
   const { error: showError, success: showSuccess } = useToast();
 
@@ -579,14 +580,17 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
           } else if (ev === "status") {
             if (sessionRef.current !== sess) return;
             try {
-              const d = JSON.parse(dm) as { label?: string; thinking?: string; agent?: "main" | "sub" };
+              const d = JSON.parse(dm) as { label?: string; thinking?: string; phase?: string; agent?: "main" | "sub" };
               if (d.label) {
                 setStatusText(d.label);
                 setAgentMode(d.agent ?? (/sub-agent|delegate|delegat/i.test(d.label) ? "sub" : "main"));
                 if (d.thinking) {
                   setThinkingText(d.thinking);
+                  const entry = { text: d.thinking, phase: d.phase ?? "" };
                   setThinkingHistory((current) => {
-                    const next = current.at(-1) === d.thinking ? current : [...current, d.thinking!].slice(-8);
+                    const last = current.at(-1);
+                    const lastText = typeof last === "string" ? last : last?.text;
+                    const next = lastText === entry.text ? current : [...current, entry].slice(-40);
                     thinkingHistoryRef.current = next;
                     return next;
                   });
@@ -617,9 +621,9 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
             finalData = completed;
             if (completed.toolCalls?.length || completed.artifacts?.length) {
               setStatusText("Reporting");
-              const reportStep = "Browser actions are complete; compiling the report and checking saved artifacts.";
-              setThinkingText(reportStep);
-              thinkingHistoryRef.current = [...thinkingHistoryRef.current, reportStep].slice(-8);
+              const reportStep = { text: "Browser actions are complete; compiling the report and checking saved artifacts.", phase: "Reporting" };
+              setThinkingText(reportStep.text);
+              thinkingHistoryRef.current = [...thinkingHistoryRef.current, reportStep].slice(-40);
               setThinkingHistory(thinkingHistoryRef.current);
             }
           } else if (ev === "aborted") {
@@ -1038,8 +1042,8 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                               </div>}
                               {!!m.thinking?.length && <details className="mt-3 border-t border-white/10 pt-2" open={false}>
                                 <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wider text-zinc-500 hover:text-white">Agent activity ({m.thinking.length})</summary>
-                                <div className="mt-2 flex flex-col gap-1.5 border-l border-white/15 pl-3">
-                                  {m.thinking.map((item, index) => <p key={`${item}-${index}`} className="text-xs leading-relaxed text-zinc-400">{item}</p>)}
+                                <div className="mt-2 border-l border-white/15 pl-3">
+                                  <ThinkingList entries={m.thinking} />
                                 </div>
                               </details>}
                               {!!m.toolCalls?.length && (
@@ -1047,7 +1051,7 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                                   <div className="mb-2 flex flex-wrap gap-1.5">
                                     <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">{m.toolCalls.length} browser steps</span>
                                     {!!m.screenshots?.filter((shot) => !!shot.image).length && <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">{m.screenshots.filter((shot) => !!shot.image).length} screenshots</span>}
-                                    {m.toolCalls.some((tool) => /test|run/i.test(tool.tool)) && <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">Test run</span>}
+                                    {m.toolCalls.some((tool) => tool.tool === "test_run") && <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">Test run</span>}
                                   </div>
                                   <button
                                     onClick={() =>
@@ -1170,7 +1174,7 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                              <button type="button" onClick={() => setThinkingOpen((open) => !open)} className="flex w-full items-center gap-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-500 hover:text-white">
                                <Brain size={12} /> Agent thinking <ChevronDown size={12} className={`ml-auto transition ${thinkingOpen ? "rotate-180" : ""}`} />
                              </button>
-                              {thinkingOpen && <div className="mt-1.5 flex flex-col gap-1.5">{thinkingHistory.length ? thinkingHistory.map((item, index) => <p key={`${item}-${index}`} className="text-xs leading-relaxed text-zinc-400">{item}</p>) : <p className="text-xs text-zinc-500">Waiting for agent activity…</p>}</div>}
+                               {thinkingOpen && <div className="mt-1.5">{thinkingHistory.length ? <ThinkingList entries={thinkingHistory} /> : <p className="text-xs text-zinc-500">Waiting for agent activity…</p>}</div>}
                            </div>}
                            {!!approval && (
                              <ApprovalCard approval={approval} approving={approving} onRespond={(ok) => void respondApproval(ok)} onAlwaysAllow={() => void respondApproval(true, true)} />

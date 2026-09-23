@@ -1,0 +1,497 @@
+[
+  {
+    "id": "TC-001",
+    "area": "Login",
+    "type": "Positive",
+    "title": "should login with valid credentials and navigate to products page",
+    "preconditions": "User is on login page",
+    "testData": "Email: test@qabrains.com, Password: Password123",
+    "steps": [
+      "Navigate to /ecommerce/login",
+      "Enter valid email and password",
+      "Click LOGIN button",
+      "Verify products page loads"
+    ],
+    "expected": "User redirected to /ecommerce showing Products heading with product cards",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-002",
+    "area": "Login",
+    "type": "Negative",
+    "title": "should show error for invalid email",
+    "preconditions": "User is on login page",
+    "testData": "Email: invalid@test.com, Password: Password123",
+    "steps": [
+      "Navigate to /ecommerce/login",
+      "Enter invalid email and valid password",
+      "Click LOGIN button",
+      "Verify error message appears"
+    ],
+    "expected": "Error message displayed, user stays on login page",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-003",
+    "area": "Login",
+    "type": "Negative",
+    "title": "should show error for invalid password",
+    "preconditions": "User is on login page",
+    "testData": "Email: test@qabrains.com, Password: wrongpass",
+    "steps": [
+      "Navigate to /ecommerce/login",
+      "Enter valid email and wrong password",
+      "Click LOGIN button",
+      "Verify error message appears"
+    ],
+    "expected": "Error message displayed, user stays on login page",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-004",
+    "area": "Login",
+    "type": "Negative",
+    "title": "should show error for empty fields",
+    "preconditions": "User is on login page",
+    "testData": "Email: (empty), Password: (empty)",
+    "steps": [
+      "Navigate to /ecommerce/login",
+      "Click LOGIN button without entering credentials",
+      "Verify error message appears"
+    ],
+    "expected": "Error message displayed for required fields",
+    "priority": "Medium",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-005",
+    "area": "Products",
+    "type": "Positive",
+    "title": "should display all 9 products on products page",
+    "preconditions": "User is logged in",
+    "testData": "N/A",
+    "steps": [
+      "Navigate to /ecommerce after login",
+      "Count product cards displayed"
+    ],
+    "expected": "9 product cards displayed with names, descriptions, images, and Add to cart buttons",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-006",
+    "area": "Products",
+    "type": "Positive",
+    "title": "should sort products A to Z ascending",
+    "preconditions": "User is logged in on products page",
+    "testData": "Sort: A to Z (Ascending)",
+    "steps": [
+      "Click sort dropdown",
+      "Select 'A to Z (Ascending)'",
+      "Verify first product name"
+    ],
+    "expected": "First product is Sample Jacket Name (id=3 or id=7)",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-007",
+    "area": "Products",
+    "type": "Positive",
+    "title": "should sort products Z to A descending",
+    "preconditions": "User is logged in on products page",
+    "testData": "Sort: Z to A (Descending)",
+    "steps": [
+      "Click sort dropdown",
+      "Select 'Z to A (Descending)'",
+      "Verify first product name"
+    ],
+    "expected": "First product is Sample Trouser Name",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-008",
+    "area": "Products",
+    "type": "Positive",
+    "title": "should sort products by price low to high",
+    "preconditions": "User is logged in on products page",
+    "testData": "Sort: Low to High (Price)",
+    "steps": [
+      "Click sort dropdown",
+      "Select 'Low to High (Price)'",
+      "Verify products are sorted"
+    ],
+    "expected": "Products ordered by price ascending",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-009",
+    "area": "Products",
+    "type": "Positive",
+    "title": "should sort products by price high to low",
+    "preconditions": "User is logged in on products page",
+    "testData": "Sort: High to Low (Price)",
+    "steps": [
+      "Click sort dropdown",
+      "Select 'High to Low (Price)'",
+      "Verify products are sorted"
+    ],
+    "expected": "Products ordered by price descending",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-010",
+    "area": "Product Details",
+    "type": "Positive",
+    "title": "should navigate to product detail page and show product info",
+    "preconditions": "User is logged in on products page",
+    "testData": "Product ID: 1",
+    "steps": [
+      "Click on product 1 name/image",
+      "Verify product detail page loads",
+      "Verify product name, image, quantity controls visible"
+    ],
+    "expected": "Product detail page shows name 'Sample Shirt Name', image, quantity input (default 1), +/- buttons, Add to cart button, Back to Products button",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-011",
+    "area": "Product Details",
+    "type": "Positive",
+    "title": "should increment and decrement quantity on product detail page",
+    "preconditions": "User is on product detail page for product 1",
+    "testData": "Quantity: click + twice, then - once",
+    "steps": [
+      "Verify default quantity is 1",
+      "Click + button",
+      "Verify quantity is 2",
+      "Click + button",
+      "Verify quantity is 3",
+      "Click - button",
+      "Verify quantity is 2"
+    ],
+    "expected": "Quantity correctly increments and decrements",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-012",
+    "area": "Product Details",
+    "type": "Positive",
+    "title": "should add product to cart from detail page with quantity",
+    "preconditions": "User is on product detail page for product 1",
+    "testData": "Set quantity to 2",
+    "steps": [
+      "Click + to set quantity to 2",
+      "Click Add to cart",
+      "Verify cart badge shows 2",
+      "Navigate to cart",
+      "Verify product in cart with quantity 2"
+    ],
+    "expected": "Cart badge shows count, cart page shows product with correct quantity",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-013",
+    "area": "Product Details",
+    "type": "Positive",
+    "title": "should navigate back to products from detail page",
+    "preconditions": "User is on product detail page",
+    "testData": "N/A",
+    "steps": [
+      "Click 'Back to Products' button",
+      "Verify products page loads"
+    ],
+    "expected": "User returns to /ecommerce products listing",
+    "priority": "Low",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-014",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "should add product to cart from products listing",
+    "preconditions": "User is logged in, cart is empty",
+    "testData": "Product 1",
+    "steps": [
+      "Navigate to products page",
+      "Click 'Add to cart' on product 1",
+      "Verify button changes to 'Remove from cart'",
+      "Verify cart badge shows 1"
+    ],
+    "expected": "Product added to cart, button text updates, badge shows count",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-015",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "should remove product from cart on products page",
+    "preconditions": "Product 1 is in cart",
+    "testData": "Product 1",
+    "steps": [
+      "On products page, click 'Remove from cart' on product 1",
+      "Verify button changes back to 'Add to cart'",
+      "Verify cart badge disappears"
+    ],
+    "expected": "Product removed from cart, button reverts, badge hidden",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-016",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "should display cart items correctly",
+    "preconditions": "Product 1 is in cart with qty 1",
+    "testData": "N/A",
+    "steps": [
+      "Navigate to /ecommerce/cart",
+      "Verify cart page heading 'Your Cart'",
+      "Verify product name, image, remove button, quantity controls",
+      "Verify Continue Shopping and Checkout buttons visible"
+    ],
+    "expected": "Cart shows added products with correct details and controls",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-017",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "should remove product from cart page",
+    "preconditions": "Product 1 is in cart",
+    "testData": "N/A",
+    "steps": [
+      "Navigate to cart",
+      "Click Remove button",
+      "Verify product removed from cart"
+    ],
+    "expected": "Product removed, cart is empty",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-018",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "should update quantity in cart using +/- buttons",
+    "preconditions": "Product 1 is in cart with qty 1",
+    "testData": "Click + twice",
+    "steps": [
+      "Navigate to cart",
+      "Click + button",
+      "Verify quantity increased",
+      "Click - button",
+      "Verify quantity decreased"
+    ],
+    "expected": "Cart quantity updates correctly",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-019",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "should navigate back to products via Continue Shopping",
+    "preconditions": "User is on cart page",
+    "testData": "N/A",
+    "steps": [
+      "Click 'Continue Shopping' button",
+      "Verify products page loads"
+    ],
+    "expected": "User returns to products listing at /ecommerce",
+    "priority": "Low",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-020",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "should complete full checkout flow successfully",
+    "preconditions": "Product in cart, user on cart page",
+    "testData": "FirstName: John, LastName: Doe, Zip: 12345",
+    "steps": [
+      "Click Checkout button on cart page",
+      "Verify checkout-info page loads",
+      "Fill first name, last name, zip code",
+      "Click Continue",
+      "Verify checkout overview or confirmation page",
+      "Verify order confirmation"
+    ],
+    "expected": "User completes checkout and sees order confirmation",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-021",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "should cancel checkout and return to cart",
+    "preconditions": "User is on checkout-info page",
+    "testData": "N/A",
+    "steps": [
+      "On checkout-info page, click Cancel",
+      "Verify user returns to cart page"
+    ],
+    "expected": "Cart page displayed with items preserved",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-022",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "should show validation error for empty required fields in checkout",
+    "preconditions": "User is on checkout-info page",
+    "testData": "All fields empty",
+    "steps": [
+      "On checkout-info page, leave all fields empty",
+      "Click Continue",
+      "Verify validation errors appear"
+    ],
+    "expected": "Validation errors shown for required fields",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-023",
+    "area": "Favorites",
+    "type": "Positive",
+    "title": "should add product to favorites from products page",
+    "preconditions": "User is logged in, no favorites",
+    "testData": "Product 1",
+    "steps": [
+      "On products page, click heart/favorite icon on product 1",
+      "Verify heart icon state changes"
+    ],
+    "expected": "Product added to favorites, heart icon toggled",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-024",
+    "area": "Favorites",
+    "type": "Positive",
+    "title": "should display favorite products on favorites page",
+    "preconditions": "At least one product favorited",
+    "testData": "N/A",
+    "steps": [
+      "Navigate to favorites page via user dropdown",
+      "Verify favorite products displayed",
+      "Verify 'Continue Shopping' link present"
+    ],
+    "expected": "Favorites page shows added favorites or empty state message",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-025",
+    "area": "Favorites",
+    "type": "Positive",
+    "title": "should show empty state when no favorites exist",
+    "preconditions": "No products favorited",
+    "testData": "N/A",
+    "steps": [
+      "Navigate to favorites page",
+      "Verify empty state message 'You have no favorite products'"
+    ],
+    "expected": "Empty state message displayed with Continue Shopping link",
+    "priority": "Low",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-026",
+    "area": "Navigation",
+    "type": "Positive",
+    "title": "should navigate to favorites from user dropdown menu",
+    "preconditions": "User is logged in",
+    "testData": "N/A",
+    "steps": [
+      "Click user email button to open dropdown",
+      "Click 'Favorites' menu item",
+      "Verify favorites page loads"
+    ],
+    "expected": "Favorites page displayed",
+    "priority": "Medium",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-027",
+    "area": "Logout",
+    "type": "Positive",
+    "title": "should logout and redirect to login page",
+    "preconditions": "User is logged in",
+    "testData": "N/A",
+    "steps": [
+      "Click user email button to open dropdown",
+      "Click 'Log out'",
+      "Verify redirect to login page"
+    ],
+    "expected": "User logged out, login page displayed",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-028",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "should persist cart across page navigation",
+    "preconditions": "Product 1 in cart",
+    "testData": "N/A",
+    "steps": [
+      "Add product 1 to cart",
+      "Navigate to product details page",
+      "Navigate back to products",
+      "Navigate to cart",
+      "Verify product still in cart"
+    ],
+    "expected": "Cart contents persist across navigation",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-029",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "should add multiple different products to cart",
+    "preconditions": "Cart is empty",
+    "testData": "Products 1, 2, 3",
+    "steps": [
+      "Add product 1 to cart",
+      "Add product 2 to cart",
+      "Add product 3 to cart",
+      "Verify cart badge shows 3",
+      "Navigate to cart",
+      "Verify all 3 products in cart"
+    ],
+    "expected": "Cart contains all 3 products with correct names",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-030",
+    "area": "Product Details",
+    "type": "Positive",
+    "title": "should display correct product info for different products",
+    "preconditions": "User is logged in",
+    "testData": "Product IDs: 1, 2, 5",
+    "steps": [
+      "Navigate to product details for id=1, verify name is 'Sample Shirt Name'",
+      "Navigate to product details for id=2, verify name is 'Sample Shoe Name'",
+      "Navigate to product details for id=5, verify name is 'Sample T-Shirt Name'"
+    ],
+    "expected": "Each product detail page shows correct product name and info",
+    "priority": "Medium",
+    "severity": "Medium"
+  }
+]

@@ -1,10 +1,12 @@
+export type ThinkingEntry = string | { text: string; phase?: string };
+
 export type Msg = {
   role: "user" | "assistant";
   content: string;
   toolCalls?: { tool: string; input: unknown }[];
   screenshots?: { url: string; image: string }[];
   artifacts?: { kind: string; file: string; meta: Record<string, unknown> }[];
-  thinking?: string[];
+  thinking?: ThinkingEntry[];
   model?: string;
   skills?: string[];
   usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };

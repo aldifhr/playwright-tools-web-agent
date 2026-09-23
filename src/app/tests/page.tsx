@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Copy, FileText, FileUp, FlaskConical, Play, RotateCw, Trash2, XCircle } from "lucide-react";
@@ -63,6 +63,7 @@ export default function TestsPage() {
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [confirmClearHistory, setConfirmClearHistory] = useState(false);
   const [imported, setImported] = useState<ImportedCase[] | null>(null);
   const [importName, setImportName] = useState("");
   const [importing, setImporting] = useState(false);
@@ -256,6 +257,21 @@ export default function TestsPage() {
     }
   }
 
+  async function clearHistory() {
+    setConfirmClearHistory(false);
+    try {
+      const res = await fetch("/api/tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear-history" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to clear history.");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to clear history.");
+    }
+  }
   async function remove(file: string) {
     setPendingDelete(null);
     try {
@@ -278,6 +294,16 @@ export default function TestsPage() {
   const visible = specs.filter((s) =>
     !query.trim() || s.file.toLowerCase().includes(query.trim().toLowerCase())
   );
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, typeof visible>();
+    for (const s of visible) {
+      const g = s.file.includes("/") ? s.file.slice(0, s.file.indexOf("/")) : "general";
+      if (!map.has(g)) map.set(g, []);
+      map.get(g)!.push(s);
+    }
+    return [...map.entries()];
+  }, [visible]);
 
   const totals = specs.reduce(
     (acc, s) => {
@@ -376,7 +402,7 @@ export default function TestsPage() {
               </button>
             </div>
           ) : (
-            <>
+              <>
               <div className="border-b border-white/10 bg-black/30 px-4 py-2.5">
                 <input
                   value={query}
@@ -388,8 +414,15 @@ export default function TestsPage() {
               {visible.length === 0 ? (
                 <div className="p-8 text-center text-xs text-zinc-500">No specs match &ldquo;{query}&rdquo;.</div>
               ) : (
-                visible.map((s) => {
+                <>
+                {grouped.map(([group, items]) => (
+                  <div key={group}>
+                    <div className="border-b border-white/10 bg-black/40 px-4 py-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+                      {group} • {items.length} spec(s)
+                    </div>
+                    {items.map((s) => {
               const r = lastRun[s.file];
+              const shortName = s.file.includes("/") ? s.file.slice(s.file.indexOf("/") + 1) : s.file;
               return (
                 <div key={s.file} className="border-b border-white/8 px-4 py-3 last:border-b-0 hover:bg-white/5">
                   <div className="flex flex-wrap items-center gap-3">
@@ -399,7 +432,7 @@ export default function TestsPage() {
                       <FileText size={16} className="shrink-0 text-zinc-600" />
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-white">{s.file}</p>
+                      <p className="truncate text-sm font-medium text-white" title={s.file}>{shortName}</p>
                       <p className="text-[11px] text-zinc-500">
                         {s.kb} KB • {fmtDate(s.updatedAt)}
                         {r && ` • ${r.passed} passed, ${r.failed} failed, ${r.skipped} skipped in ${r.durationMs}ms`}
@@ -430,10 +463,13 @@ export default function TestsPage() {
                     </div>
                   )}
                 </div>
-              );
-            })
-              )}
-            </>
+                      );
+                    })}
+                    </div>
+                  ))}
+                  </>
+                  )}
+              </>
           )}
         </div>
 
@@ -558,9 +594,48 @@ export default function TestsPage() {
             </div>
           </div>
         )}
+        {confirmClearHistory && (
+          <div
+            className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
+            onClick={() => setConfirmClearHistory(false)}
+          >
+            <div
+              className="glass w-full max-w-sm rounded-2xl p-5 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-sm font-bold text-white">Clear run history?</p>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                All {history.length} recorded run(s) will be removed. Saved specs, cases, and results are kept.
+              </p>
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={() => setConfirmClearHistory(false)}
+                  className="flex-1 rounded-xl border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-white/10 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void clearHistory()}
+                  className="flex-1 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black transition hover:bg-zinc-200 active:scale-[0.98]"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
-        {history.length > 0 && (          <div className="mt-6">
-            <h2 className="text-sm font-semibold text-white">Run history</h2>
+        {history.length > 0 && (
+          <div className="mt-6">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-white">Run history</h2>
+              <button
+                onClick={() => setConfirmClearHistory(true)}
+                className="ml-auto rounded-lg bg-white/8 px-2.5 py-1.5 text-[11px] text-zinc-400 hover:bg-white/15 hover:text-white"
+              >
+                Clear history
+              </button>
+            </div>
             <div className="mt-2 overflow-hidden rounded-2xl border border-white/10">
               {history.slice().reverse().slice(0, 20).map((h) => (
                 <div key={h.id} className="flex flex-wrap items-center gap-3 border-b border-white/8 px-4 py-2.5 text-[11px] last:border-b-0">

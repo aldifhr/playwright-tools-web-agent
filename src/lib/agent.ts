@@ -448,7 +448,7 @@ export function getBrowserTools(
       inputSchema: z.object({
         file: z
           .string()
-          .describe("file name, e.g. login-saucedemo.spec.ts"),
+          .describe("file path, e.g. login.spec.ts or qabrains-ecommerce/login.spec.ts (group keeps tests/ tidy)"),
         content: z.string().describe("full spec content"),
       }),
       execute: wrap(
@@ -461,7 +461,7 @@ export function getBrowserTools(
       description:
         "Save a ten-section QA test plan document as Markdown: Project Information, Objective, Scope, Test Strategy, Deliverables, Environment, Roles, Schedule, Risk & Mitigation, and Approval",
       inputSchema: z.object({
-        file: z.string().describe("base file name, e.g. saucedemo-test-plan"),
+        file: z.string().describe("base file path, e.g. saucedemo-test-plan or qabrains-ecommerce/saucedemo-test-plan"),
         projectName: z.string(),
         testerName: z.string(),
         date: z.string(),
@@ -573,7 +573,7 @@ export function getBrowserTools(
       inputSchema: z.object({
         file: z
           .string()
-          .describe("base file name, e.g. login-saucedemo.spec.ts"),
+          .describe("base file path, e.g. login-saucedemo.spec.ts or qabrains-ecommerce/login.spec.ts"),
         cases: z.array(TestCaseSchema).min(1).max(50),
       }),
       execute: wrap(
@@ -623,7 +623,7 @@ export function getBrowserTools(
       inputSchema: z.object({
         file: z
           .string()
-          .describe("base file name, e.g. login-saucedemo.spec.ts"),
+          .describe("base file path, e.g. login-saucedemo.spec.ts or qabrains-ecommerce/login.spec.ts"),
         results: z.array(z.object({
           id: z.string().describe("case id, e.g. TC-001"),
           status: z.enum(["PASS", "FAIL", "BLOCKED", "SKIPPED"]),

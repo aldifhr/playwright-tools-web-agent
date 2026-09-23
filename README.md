@@ -149,7 +149,7 @@ src/lib/providers.ts            Providers and the English QA system prompt
 src/lib/skills.ts               skills.sh client and local skill loader
 src/lib/specs.ts               Spec, test-case, artifact, and quality-gate storage
 src/lib/soul.ts                 Prompt composition for soul, rules, memory, and skills
-tests/                          Playwright specs and generated test-case artifacts
+tests/                          Playwright specs and artifacts, grouped per site (tests/qabrains-ecommerce/, tests/saucedemo/)
 ```
 
 ## Verification
