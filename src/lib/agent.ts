@@ -477,7 +477,59 @@ export function getBrowserTools(
         risks: z.array(PlanRiskSchema),
         approval: z.array(PlanApprovalSchema),
       }),
-      execute: wrap("test_plan_document", async (input) => savePlanDocument(input.file, input)),
+      execute: wrap("test_plan_document", async (input: {
+        file?: string;
+        projectName?: string;
+        testerName?: string;
+        date?: string;
+        version?: string;
+        objective?: string;
+        inScope?: string[];
+        outOfScope?: string[];
+        testStrategy?: string[];
+        deliverables?: string[];
+        environment?: { key?: string; value?: string }[];
+        roles?: { role?: string; name?: string; responsibility?: string }[];
+        schedule?: { event?: string; startDate?: string; endDate?: string }[];
+        risks?: { risk?: string; mitigation?: string }[];
+        approval?: { name?: string; role?: string; signature?: string }[];
+      }) => {
+        if (!input.file) throw new Error("file is required");
+        const req = (v: unknown, name: string): string => {
+          if (typeof v !== "string" || !v) throw new Error(`${name} is required`);
+          return v;
+        };
+        const arr = (v: unknown, name: string): string[] => {
+          if (!Array.isArray(v)) throw new Error(`${name} is required`);
+          return v.map(String);
+        };
+        return savePlanDocument(input.file, {
+          projectName: req(input.projectName, "projectName"),
+          testerName: req(input.testerName, "testerName"),
+          date: req(input.date, "date"),
+          version: req(input.version, "version"),
+          objective: req(input.objective, "objective"),
+          inScope: arr(input.inScope, "inScope"),
+          outOfScope: arr(input.outOfScope, "outOfScope"),
+          testStrategy: arr(input.testStrategy, "testStrategy"),
+          deliverables: arr(input.deliverables, "deliverables"),
+          environment: Array.isArray(input.environment)
+            ? input.environment.map((e) => ({ key: String(e?.key ?? ""), value: String(e?.value ?? "") }))
+            : [],
+          roles: Array.isArray(input.roles)
+            ? input.roles.map((r) => ({ role: String(r?.role ?? ""), name: String(r?.name ?? ""), responsibility: String(r?.responsibility ?? "") }))
+            : [],
+          schedule: Array.isArray(input.schedule)
+            ? input.schedule.map((s) => ({ event: String(s?.event ?? ""), startDate: String(s?.startDate ?? ""), endDate: String(s?.endDate ?? "") }))
+            : [],
+          risks: Array.isArray(input.risks)
+            ? input.risks.map((r) => ({ risk: String(r?.risk ?? ""), mitigation: String(r?.mitigation ?? "") }))
+            : [],
+          approval: Array.isArray(input.approval)
+            ? input.approval.map((a) => ({ name: String(a?.name ?? ""), role: String(a?.role ?? ""), signature: String(a?.signature ?? "") }))
+            : [],
+        });
+      }),
     }),
     test_run: tool({
       description:
@@ -526,13 +578,37 @@ export function getBrowserTools(
       }),
       execute: wrap(
         "test_plan",
-        async ({
-          file,
-          cases,
-        }: {
-          file: string;
-          cases: z.infer<typeof TestCaseSchema>[];
-        }) => saveCases(file, cases)
+        async (input: {
+          file?: string;
+          cases?: {
+            id?: string;
+            area?: string;
+            type?: string;
+            title?: string;
+            preconditions?: string;
+            testData?: string;
+            steps?: string[];
+            expected?: string;
+            priority?: "High" | "Medium" | "Low";
+            severity?: "High" | "Medium" | "Low";
+          }[];
+        }) => {
+          if (!input.file) throw new Error("file is required");
+          const cases = (input.cases ?? []).map((c) => ({
+            id: String(c.id ?? ""),
+            area: String(c.area ?? ""),
+            type: String(c.type ?? "Positive"),
+            title: String(c.title ?? ""),
+            preconditions: String(c.preconditions ?? ""),
+            testData: String(c.testData ?? ""),
+            steps: Array.isArray(c.steps) ? c.steps.map(String) : [],
+            expected: String(c.expected ?? ""),
+            priority: (["High", "Medium", "Low"].includes(c.priority as string) ? c.priority : "Medium") as "High" | "Medium" | "Low",
+            severity: (["High", "Medium", "Low"].includes(c.severity as string) ? c.severity : "Medium") as "High" | "Medium" | "Low",
+          }));
+          if (!cases.length) throw new Error("cases cannot be empty");
+          return saveCases(input.file, cases);
+        }
       ),
     }),
     test_list: tool({
