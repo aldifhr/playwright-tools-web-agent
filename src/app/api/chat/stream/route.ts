@@ -22,7 +22,9 @@ import { flushLogs } from "@/lib/tool-logs";
 import { guardApi } from "@/lib/api-guard";
 import { leave, tryEnter } from "@/lib/rate-limit";
 export const maxDuration = 300;
-const MAX_STEPS = 30;
+// Generous budget for full-coverage explorations. Override with MAX_AGENT_STEPS.
+// The per-step 120s timeout and the concurrent-run cap remain as backstops.
+const MAX_STEPS = Math.max(10, Number(process.env.MAX_AGENT_STEPS) || 100);
 
 function thinkingFor(toolName?: string, input?: unknown) {  const values = typeof input === "object" && input ? input as Record<string, unknown> : {};
   const target = typeof values.url === "string" ? ` ${values.url}` : " the current target";
@@ -301,13 +303,18 @@ async function handleStream(req: NextRequest) {
             toolCalls.push({ tool: tc.toolName, input: tc.input });
           }
            for (const tr of step?.toolResults ?? []) {
-             const out = tr.output as unknown;
-             if (out && typeof out === "object" && "saved" in (out as Record<string, unknown>)) {
-               const result = out as Record<string, unknown>;
-               const file = String(result.saved);
-               const kind = file.endsWith(".md") ? "Test Plan Document" : file.endsWith(".cases.json") ? "Test Cases" : "Automation";
-               artifacts.push({ kind, file, meta: result });
-             }
+              const out = tr.output as unknown;
+              if (out && typeof out === "object" && "saved" in (out as Record<string, unknown>)) {
+                const result = out as Record<string, unknown>;
+                const file = String(result.saved);
+                const kind = file.endsWith(".md") ? "Test Plan Document" : file.endsWith(".cases.json") ? "Test Cases" : "Automation";
+                // Dedupe by filename: re-saves (e.g. spec fix after a failed
+                // run) replace the earlier entry instead of doubling it.
+                const existing = artifacts.findIndex((a) => a.file === file);
+                const entry = { kind, file, meta: result };
+                if (existing >= 0) artifacts[existing] = entry;
+                else artifacts.push(entry);
+              }
             if (
               out &&
               typeof out === "object" &&
@@ -350,7 +357,7 @@ async function handleStream(req: NextRequest) {
 
         send("done", {
           text:
-            fullText.trim() + (capped ? "\n\n---\nStopped early: reached the 30-step limit before finishing. Ask me to continue from where it left off." : "") ||
+            fullText.trim() + (capped ? `\n\n---\nStopped early: reached the ${MAX_STEPS}-step limit before finishing. Ask me to continue from where it left off.` : "") ||
             (capped
               ? "Agent reached the step limit before finishing the summary. Continue from the last exploration or split the request into smaller areas."
               : "Tools finished, but the model did not send a summary."),

@@ -556,13 +556,19 @@ export function getBrowserTools(
       }),
       execute: wrap(
         "test_record",
-        async ({
-          file,
-          results,
-        }: {
-          file: string;
-          results: { id: string; status: string; actual?: string }[];
-        }) => saveCaseResults(file, results)
+        async (input: {
+          file?: string;
+          results?: { id?: string; status?: string; actual?: string }[];
+        }) => {
+          if (!input.file) throw new Error("file is required");
+          const results = (input.results ?? []).map((r) => ({
+            id: r.id ?? "",
+            status: r.status ?? "",
+            actual: r.actual ?? "",
+          }));
+          if (!results.length) throw new Error("results cannot be empty");
+          return saveCaseResults(input.file, results);
+        }
       ),
     }),
   };

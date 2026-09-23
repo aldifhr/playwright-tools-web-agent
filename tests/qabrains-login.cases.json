@@ -1,0 +1,259 @@
+[
+  {
+    "id": "TC-001",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Successful login with valid credentials",
+    "preconditions": "User is on login page",
+    "testData": "Email: test@qabrains.com, Password: Password123",
+    "steps": [
+      "Navigate to login page",
+      "Enter email test@qabrains.com in email field",
+      "Enter password Password123 in password field",
+      "Click LOGIN button"
+    ],
+    "expected": "User is redirected to the home/product page after successful login",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-002",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with wrong password",
+    "preconditions": "User is on login page",
+    "testData": "Email: test@qabrains.com, Password: WrongPass123",
+    "steps": [
+      "Navigate to login page",
+      "Enter email test@qabrains.com in email field",
+      "Enter password WrongPass123 in password field",
+      "Click LOGIN button"
+    ],
+    "expected": "Error message is displayed indicating invalid credentials",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-003",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with unregistered email",
+    "preconditions": "User is on login page",
+    "testData": "Email: unknown@test.com, Password: Password123",
+    "steps": [
+      "Navigate to login page",
+      "Enter email unknown@test.com in email field",
+      "Enter password Password123 in password field",
+      "Click LOGIN button"
+    ],
+    "expected": "Error message is displayed indicating invalid credentials",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-004",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with empty email field",
+    "preconditions": "User is on login page",
+    "testData": "Email: (empty), Password: Password123",
+    "steps": [
+      "Navigate to login page",
+      "Leave email field empty",
+      "Enter password Password123 in password field",
+      "Click LOGIN button"
+    ],
+    "expected": "Validation error message for required email field",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-005",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with empty password field",
+    "preconditions": "User is on login page",
+    "testData": "Email: test@qabrains.com, Password: (empty)",
+    "steps": [
+      "Navigate to login page",
+      "Enter email test@qabrains.com in email field",
+      "Leave password field empty",
+      "Click LOGIN button"
+    ],
+    "expected": "Validation error message for required password field",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-006",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with both fields empty",
+    "preconditions": "User is on login page",
+    "testData": "Email: (empty), Password: (empty)",
+    "steps": [
+      "Navigate to login page",
+      "Leave email field empty",
+      "Leave password field empty",
+      "Click LOGIN button"
+    ],
+    "expected": "Validation error messages for both required fields",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-007",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with SQL injection in email field",
+    "preconditions": "User is on login page",
+    "testData": "Email: ' OR '1'='1, Password: anything",
+    "steps": [
+      "Navigate to login page",
+      "Enter SQL injection payload in email field",
+      "Enter any password in password field",
+      "Click LOGIN button"
+    ],
+    "expected": "Login fails, no unauthorized access, error message displayed",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-008",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with XSS payload in email field",
+    "preconditions": "User is on login page",
+    "testData": "Email: <script>alert('XSS')</script>",
+    "steps": [
+      "Navigate to login page",
+      "Enter XSS payload in email field",
+      "Click LOGIN button"
+    ],
+    "expected": "No script execution, payload is sanitized or escaped",
+    "priority": "Medium",
+    "severity": "High"
+  },
+  {
+    "id": "TC-009",
+    "area": "Login",
+    "type": "Boundary",
+    "title": "Login with email containing only spaces",
+    "preconditions": "User is on login page",
+    "testData": "Email: '   ' (spaces), Password: Password123",
+    "steps": [
+      "Navigate to login page",
+      "Enter spaces in email field",
+      "Enter password Password123 in password field",
+      "Click LOGIN button"
+    ],
+    "expected": "Validation error or login fails, spaces are trimmed",
+    "priority": "Low",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-010",
+    "area": "Login",
+    "type": "Boundary",
+    "title": "Login with very long email address",
+    "preconditions": "User is on login page",
+    "testData": "Email: a very long string (256+ chars) @test.com, Password: Password123",
+    "steps": [
+      "Navigate to login page",
+      "Enter very long email in email field",
+      "Enter password Password123 in password field",
+      "Click LOGIN button"
+    ],
+    "expected": "Email field handles max length gracefully, no crash",
+    "priority": "Low",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-011",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Password visibility toggle functionality",
+    "preconditions": "User is on login page",
+    "testData": "Any password text",
+    "steps": [
+      "Navigate to login page",
+      "Enter text in password field",
+      "Click eye/toggle button next to password field",
+      "Verify password is visible",
+      "Click toggle again",
+      "Verify password is hidden"
+    ],
+    "expected": "Password toggles between visible and hidden states",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-012",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Verify login page elements are present",
+    "preconditions": "User is on login page",
+    "testData": "N/A",
+    "steps": [
+      "Navigate to login page",
+      "Verify email input field exists",
+      "Verify password input field exists",
+      "Verify LOGIN button exists",
+      "Verify LOGIN heading is displayed"
+    ],
+    "expected": "All login page elements are present and visible",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-013",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with email missing @ symbol",
+    "preconditions": "User is on login page",
+    "testData": "Email: testqabrains.com, Password: Password123",
+    "steps": [
+      "Navigate to login page",
+      "Enter invalid email without @ in email field",
+      "Enter password Password123 in password field",
+      "Click LOGIN button"
+    ],
+    "expected": "Validation error for invalid email format",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-014",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Login with Enter key instead of button click",
+    "preconditions": "User is on login page",
+    "testData": "Email: test@qabrains.com, Password: Password123",
+    "steps": [
+      "Navigate to login page",
+      "Enter valid email in email field",
+      "Enter valid password in password field",
+      "Press Enter key"
+    ],
+    "expected": "Login is submitted and user is redirected",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-015",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with SQL injection in password field",
+    "preconditions": "User is on login page",
+    "testData": "Email: test@qabrains.com, Password: ' OR '1'='1",
+    "steps": [
+      "Navigate to login page",
+      "Enter valid email in email field",
+      "Enter SQL injection in password field",
+      "Click LOGIN button"
+    ],
+    "expected": "Login fails, no unauthorized access",
+    "priority": "High",
+    "severity": "High"
+  }
+]

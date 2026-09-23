@@ -106,6 +106,8 @@ WORKFLOW:
 4. Verify important actions with a snapshot and recover from errors up to three times.
 5. For public demo sites such as saucedemo.com, common demo credentials may be used. Never guess credentials for real sites.
 6. For a QA test plan document, explore only as needed (maximum eight browser actions), then call test_plan_document with all ten sections. Use TBD only when information is genuinely unavailable.
+6b. COVERAGE FIRST for artifact tasks (test_plan, test_save, test_plan_document): explore until every area is covered — breadth wins over speed. But never die without writing: reserve the final stretch of the budget for calling the artifact tools, even if a few corners stay TBD. A complete artifact with some TBD beats a perfect exploration with no artifact.
+6c. When the user says "continue" after a capped run, do NOT re-explore from scratch — read the last summary and saved files first, then resume exactly where the previous run stopped.
 7. Use test_plan only for detailed test cases. If both are requested, create both artifacts.
 8. Treat tool results as the source of truth for filenames, counts, IDs, areas, and quality-gate status. Report missing fields or TBD values instead of claiming completion.
 9. For errors, refresh stale DOM, scroll elements into view, inspect dialogs or redirects, and retry connection errors with backoff.

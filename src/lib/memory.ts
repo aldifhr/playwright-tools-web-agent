@@ -58,7 +58,13 @@ function looksSecret(fact: string): boolean {
 }
 
 export function saveFact(fact: string): { saved: string; total: number } {
-  const clean = String(fact ?? "").trim().replace(/\s+/g, " ").slice(0, MAX_LEN);
+  const clean = String(fact ?? "")
+    .trim()
+    // Normalize: agents often submit "- fact" or "1. fact" — strip list markers
+    // so MEMORY.md never gets "- - " double bullets.
+    .replace(/^([-*•\d]+[.)\s]+)+/, "")
+    .replace(/\s+/g, " ")
+    .slice(0, MAX_LEN);
   if (!clean) throw new Error("fact cannot be empty");
   if (looksSecret(clean)) {
     throw new Error(

@@ -1025,10 +1025,10 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                                   })}
                                 </div>
                                 <div className="mt-3 flex flex-col gap-2">
-                                  {m.artifacts.map((artifact) => {
+                                  {m.artifacts.map((artifact, ai) => {
                                     const quality = artifact.meta.qualityGate as { complete?: boolean; tbdCount?: number; missingFields?: string[] } | undefined;
                                     const areas = artifact.meta.areas as Record<string, number> | undefined;
-                                    return <div key={artifact.file} className="rounded-lg border border-white/8 bg-white/5 px-3 py-2">
+                                    return <div key={`${artifact.file}-${ai}`} className="rounded-lg border border-white/8 bg-white/5 px-3 py-2">
                                       <div className="flex items-center gap-2"><FileText size={12} className="text-white" /><span className="text-xs font-semibold text-white">{artifact.file}</span><span className="ml-auto text-[10px] text-zinc-500">{artifact.kind}</span></div>
                                       <p className="mt-1 text-[10px] text-zinc-400">{artifact.kind === "Test Plan Document" ? `${String(artifact.meta.sections ?? 10)} sections • ${String(artifact.meta.projectName ?? "QA project")}` : artifact.kind === "Test Cases" ? `${String(artifact.meta.count ?? 0)} cases • ${areas ? Object.entries(areas).map(([area, count]) => `${area} (${count})`).join(" · ") : "area summary unavailable"}` : "Automation artifact saved"}</p>
                                       {quality && <p className={`mt-1 text-[10px] ${quality.complete ? "text-emerald-300" : "text-amber-300"}`}>{quality.complete ? "Quality gate passed: file written, no TBD" : `Quality gate warning: ${quality.tbdCount ?? 0} TBD, ${quality.missingFields?.length ?? 0} field(s) missing`}</p>}
