@@ -12,6 +12,13 @@ const TARGET = (args: string) => args.trim() || "the current site";
 
 export const COMMANDS: CommandDef[] = [
   {
+    name: "explore",
+    desc: "Explore one area with a priority and handoff",
+    usage: "/explore [url] [area]",
+    build: (args) =>
+      `Explore only this QA area: ${TARGET(args)}. Cover critical-path behavior first, keep this request to about 8-10 browser actions, and skip footer/legal links. Save the area's test cases or plan incrementally before reporting. State what was covered, what was skipped, and the exact next area for a future "continue" request.`,
+  },
+  {
     name: "testcase",
     desc: "Explore a site and save structured test cases",
     usage: "/testcase [url or feature]",

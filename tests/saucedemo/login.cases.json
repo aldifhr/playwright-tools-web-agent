@@ -1,0 +1,362 @@
+[
+  {
+    "id": "TC-001",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Successful login with valid credentials",
+    "preconditions": "User is on login page",
+    "testData": "standard_user / secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter username: standard_user",
+      "Enter password: secret_sauce",
+      "Click Login button"
+    ],
+    "expected": "Redirects to /inventory.html",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-002",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with invalid password",
+    "preconditions": "User is on login page",
+    "testData": "standard_user / wrong_password",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter username: standard_user",
+      "Enter password: wrong_password",
+      "Click Login button"
+    ],
+    "expected": "Error message displayed",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-003",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with locked out user",
+    "preconditions": "User is on login page",
+    "testData": "locked_out_user / secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter username: locked_out_user",
+      "Enter password: secret_sauce",
+      "Click Login button"
+    ],
+    "expected": "Error message: Epic sadface: Sorry, this user has been locked out.",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-004",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with empty fields",
+    "preconditions": "User is on login page",
+    "testData": "empty / empty",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Leave username empty",
+      "Leave password empty",
+      "Click Login button"
+    ],
+    "expected": "Error message: Epic sadface: Username is required",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-L001",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Login with valid credentials",
+    "preconditions": "User is on the login page",
+    "testData": "standard_user / secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter username 'standard_user'",
+      "Enter password 'secret_sauce'",
+      "Click 'Login' button"
+    ],
+    "expected": "Redirected to /inventory.html with 6 products displayed",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-L002",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with locked out user",
+    "preconditions": "User is on the login page",
+    "testData": "locked_out_user / secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter username 'locked_out_user'",
+      "Enter password 'secret_sauce'",
+      "Click 'Login' button"
+    ],
+    "expected": "Error message 'Epic sadface: Sorry, this user has been locked out.' displayed",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-L003",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with invalid password",
+    "preconditions": "User is on the login page",
+    "testData": "standard_user / wrong_password",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter username 'standard_user'",
+      "Enter password 'wrong_password'",
+      "Click 'Login' button"
+    ],
+    "expected": "Error message displayed, user stays on login page",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-L004",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with empty credentials",
+    "preconditions": "User is on the login page",
+    "testData": "empty / empty",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Leave username and password blank",
+      "Click 'Login' button"
+    ],
+    "expected": "Error message 'Username is required' displayed",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-L005",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with empty password",
+    "preconditions": "User is on the login page",
+    "testData": "standard_user / empty",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter username 'standard_user'",
+      "Leave password blank",
+      "Click 'Login' button"
+    ],
+    "expected": "Error message 'Password is required' displayed",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-LOGIN-001",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Successful login with valid standard_user credentials",
+    "preconditions": "On saucedemo.com login page",
+    "testData": "Username: standard_user, Password: secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter 'standard_user' in #user-name",
+      "Enter 'secret_sauce' in #password",
+      "Click #login-button"
+    ],
+    "expected": "Redirected to /inventory.html; 6 products displayed",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-LOGIN-002",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Locked out user cannot log in",
+    "preconditions": "On saucedemo.com login page",
+    "testData": "Username: locked_out_user, Password: secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter 'locked_out_user' in #user-name",
+      "Enter 'secret_sauce' in #password",
+      "Click #login-button"
+    ],
+    "expected": "Error at h3[data-test='error']: 'Epic sadface: Sorry, this user has been locked out.'",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-LOGIN-003",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Empty credentials show username required error",
+    "preconditions": "On saucedemo.com login page",
+    "testData": "Username: (empty), Password: (empty)",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Leave #user-name empty",
+      "Leave #password empty",
+      "Click #login-button"
+    ],
+    "expected": "Error: 'Epic sadface: Username is required'",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-LOGIN-004",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Wrong password shows mismatch error",
+    "preconditions": "On saucedemo.com login page",
+    "testData": "Username: standard_user, Password: wrongpassword",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter 'standard_user' in #user-name",
+      "Enter 'wrongpassword' in #password",
+      "Click #login-button"
+    ],
+    "expected": "Error: 'Epic sadface: Username and password do not match'",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-LOGIN-005",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Missing password shows required error",
+    "preconditions": "User is on login page",
+    "testData": "username=standard_user, password=empty",
+    "steps": [
+      "Navigate to saucedemo.com",
+      "Enter username: standard_user",
+      "Leave password empty",
+      "Click Login button"
+    ],
+    "expected": "Error message: Epic sadface: Password is required",
+    "priority": "Medium",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-PROD-001",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Inventory page shows all 6 products",
+    "preconditions": "Logged in as standard_user",
+    "testData": "N/A",
+    "steps": [
+      "View inventory page at /inventory.html",
+      "Count product items in #inventory_container"
+    ],
+    "expected": "6 products displayed with title, image, price, Add to cart button",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-PROD-002",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Sort dropdown reorders products",
+    "preconditions": "Logged in as standard_user",
+    "testData": "N/A",
+    "steps": [
+      "View sort dropdown select.product_sort_container",
+      "Select Z to A option"
+    ],
+    "expected": "Products reorder Z-A, dropdown has 4 sort options",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-PROD-003",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Add to cart updates button and badge",
+    "preconditions": "Logged in as standard_user",
+    "testData": "Sauce Labs Backpack",
+    "steps": [
+      "Click #add-to-cart-sauce-labs-backpack"
+    ],
+    "expected": "Button becomes Remove, .shopping_cart_badge shows 1",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CART-001",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Cart page displays added item with correct details",
+    "preconditions": "1 item in cart",
+    "testData": "Sauce Labs Backpack",
+    "steps": [
+      "Click .shopping_cart_link",
+      "Verify cart page at /cart.html"
+    ],
+    "expected": "Cart shows QTY=1, item description, Remove button, Checkout and Continue Shopping buttons",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CART-002",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Remove item from cart clears it",
+    "preconditions": "1 item in cart",
+    "testData": "Sauce Labs Backpack",
+    "steps": [
+      "Click .shopping_cart_link",
+      "Click #remove-sauce-labs-backpack"
+    ],
+    "expected": "Item removed, cart empty, badge disappears",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CART-003",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Continue Shopping returns to inventory",
+    "preconditions": "1 item in cart",
+    "testData": "N/A",
+    "steps": [
+      "Click .shopping_cart_link",
+      "Click #continue-shopping"
+    ],
+    "expected": "Returns to /inventory.html",
+    "priority": "Medium",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-CHECKOUT-001",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Full checkout flow succeeds",
+    "preconditions": "1+ items in cart, on cart page",
+    "testData": "John/Doe/12345",
+    "steps": [
+      "Click #checkout on cart page",
+      "Fill #first-name, #last-name, #postal-code",
+      "Click #continue",
+      "Verify overview page",
+      "Click #finish"
+    ],
+    "expected": "Confirmation page shows THANK YOU FOR YOUR ORDER",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CHECKOUT-002",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "Checkout step-one validates required fields",
+    "preconditions": "On cart page with items",
+    "testData": "empty first name",
+    "steps": [
+      "Click #checkout",
+      "Leave #first-name empty",
+      "Click #continue"
+    ],
+    "expected": "Error: First Name is required at h3[data-test='error']",
+    "priority": "High",
+    "severity": "Medium"
+  }
+]

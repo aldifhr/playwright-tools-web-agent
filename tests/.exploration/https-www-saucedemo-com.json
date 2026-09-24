@@ -1,0 +1,20 @@
+{
+  "runId": "06cbe0dfb6344287b923c749857dd949",
+  "site": "https://www.saucedemo.com",
+  "areas": [
+    "login",
+    "products",
+    "cart",
+    "checkout"
+  ],
+  "priority": "critical",
+  "maxActions": 8,
+  "continue": false,
+  "completedAreas": [
+    "login"
+  ],
+  "currentArea": "login",
+  "nextArea": "products",
+  "lastAction": "completed",
+  "updatedAt": 1790183000008
+}

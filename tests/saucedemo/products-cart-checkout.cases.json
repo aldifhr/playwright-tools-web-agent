@@ -1,0 +1,166 @@
+[
+  {
+    "id": "TC-P001",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Product listing displays all 6 items",
+    "preconditions": "User is logged in as standard_user",
+    "testData": "standard_user / secret_sauce",
+    "steps": [
+      "Login and navigate to /inventory.html",
+      "Count product items in the list"
+    ],
+    "expected": "6 products displayed with name, image, description, price, and Add to cart button",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-P002",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Sort products by Name A-Z",
+    "preconditions": "User is logged in on inventory page",
+    "testData": "",
+    "steps": [
+      "Click sort dropdown",
+      "Select 'Name (A to Z)'"
+    ],
+    "expected": "Products sorted alphabetically A-Z",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-P003",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Sort products by Price high to low",
+    "preconditions": "User is logged in on inventory page",
+    "testData": "",
+    "steps": [
+      "Click sort dropdown",
+      "Select 'Price (high to low)'"
+    ],
+    "expected": "Products sorted by price descending",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-C001",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Add single product to cart",
+    "preconditions": "User is on inventory page",
+    "testData": "",
+    "steps": [
+      "Click 'Add to cart' on Sauce Labs Backpack",
+      "Verify cart badge shows 1",
+      "Click cart icon"
+    ],
+    "expected": "Cart badge shows '1', cart page shows Sauce Labs Backpack with correct price",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-C002",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Add multiple products to cart",
+    "preconditions": "User is on inventory page",
+    "testData": "",
+    "steps": [
+      "Add Sauce Labs Backpack to cart",
+      "Add Sauce Labs Bike Light to cart",
+      "Verify cart badge shows 2",
+      "Click cart icon"
+    ],
+    "expected": "Cart badge shows '2', cart page lists both items",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-C003",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Remove product from cart",
+    "preconditions": "User has 1 item in cart",
+    "testData": "",
+    "steps": [
+      "Add Sauce Labs Backpack to cart",
+      "Click cart icon",
+      "Click 'Remove' on Sauce Labs Backpack",
+      "Click Continue Shopping"
+    ],
+    "expected": "Cart badge disappears, product shows 'Add to cart' button again",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-C004",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Continue Shopping returns to inventory",
+    "preconditions": "User is on cart page with items",
+    "testData": "",
+    "steps": [
+      "Click 'Continue Shopping'"
+    ],
+    "expected": "Navigated back to /inventory.html with products listed",
+    "priority": "Medium",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-CK001",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Full checkout flow with one item",
+    "preconditions": "User has 1 item in cart",
+    "testData": "standard_user, First Name: John, Last Name: Doe, Zip: 12345",
+    "steps": [
+      "Login as standard_user",
+      "Add Sauce Labs Backpack to cart",
+      "Click cart icon",
+      "Click 'Checkout'",
+      "Fill First Name: John",
+      "Fill Last Name: Doe",
+      "Fill Zip Code: 12345",
+      "Click 'Continue'",
+      "Verify order summary",
+      "Click 'Finish'"
+    ],
+    "expected": "Order confirmation page shows 'Thank you for your order!' with pony express image",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CK002",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "Checkout with missing first name",
+    "preconditions": "User on checkout step one",
+    "testData": "",
+    "steps": [
+      "Leave First Name blank",
+      "Fill Last Name and Zip Code",
+      "Click 'Continue'"
+    ],
+    "expected": "Error: 'Error: First Name is required'",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-CK003",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "Checkout with missing zip code",
+    "preconditions": "User on checkout step one",
+    "testData": "",
+    "steps": [
+      "Fill First Name and Last Name",
+      "Leave Zip Code blank",
+      "Click 'Continue'"
+    ],
+    "expected": "Error: 'Error: Postal/Zip Code is required'",
+    "priority": "Medium",
+    "severity": "Medium"
+  }
+]

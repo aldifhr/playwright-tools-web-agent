@@ -1,0 +1,17 @@
+{
+  "runId": "0c09ece3741d416393b31ff77931e297",
+  "site": "current site",
+  "areas": [
+    "primary flow"
+  ],
+  "priority": "medium",
+  "maxActions": null,
+  "continue": false,
+  "completedAreas": [
+    "primary flow"
+  ],
+  "currentArea": "primary flow",
+  "nextArea": "",
+  "lastAction": "completed",
+  "updatedAt": 1790183180101
+}

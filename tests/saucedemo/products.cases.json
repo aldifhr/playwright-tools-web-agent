@@ -1,0 +1,97 @@
+[
+  {
+    "id": "TC-PROD-001",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Inventory page shows 6 products with names, images, prices, and add-to-cart buttons",
+    "preconditions": "Logged in as standard_user",
+    "testData": "",
+    "steps": [
+      "Navigate to /inventory.html after login",
+      "Verify 6 product items rendered in #inventory_container",
+      "Verify each product has image (inventory_item_img), title link (item_{id}_title_link), and add-to-cart button"
+    ],
+    "expected": "6 products visible: Sauce Labs Backpack, Bike Light, Bolt T-Shirt, Fleece Jacket, Onesie, Test.allTheThings() T-Shirt (Red)",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-PROD-002",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Sort dropdown has 4 options and defaults to A-Z",
+    "preconditions": "Logged in as standard_user on /inventory.html",
+    "testData": "",
+    "steps": [
+      "Locate select.product_sort_container",
+      "Verify default selected option is 'Name (A to Z)'",
+      "Verify 4 options: Name (A to Z), Name (Z to A), Price (low to high), Price (high to low)"
+    ],
+    "expected": "Sort dropdown works correctly with 4 sort options",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-PROD-003",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Add to cart button works and changes to Remove",
+    "preconditions": "Logged in as standard_user on /inventory.html",
+    "testData": "",
+    "steps": [
+      "Click #add-to-cart-sauce-labs-backpack",
+      "Verify button text changes to 'Remove'",
+      "Verify .shopping_cart_badge shows '1'",
+      "Click #remove-sauce-labs-backpack",
+      "Verify button reverts to 'Add to cart' and badge disappears"
+    ],
+    "expected": "Add/remove toggles correctly; cart badge updates",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-PROD-004",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Product detail page loads on title click",
+    "preconditions": "On inventory page",
+    "testData": "",
+    "steps": [
+      "Click item_4_title_link for Sauce Labs Backpack"
+    ],
+    "expected": "Navigates to /inventory-item.html?id=4 with product details",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-PROD-005",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Add to cart shows badge and button changes to Remove",
+    "preconditions": "On inventory page",
+    "testData": "",
+    "steps": [
+      "Click add-to-cart-sauce-labs-backpack",
+      "Check .shopping_cart_badge shows 1",
+      "Check button text changes to Remove"
+    ],
+    "expected": "Badge shows 1, button becomes Remove",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-PROD-006",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Burger menu opens with sidebar links",
+    "preconditions": "On inventory page",
+    "testData": "",
+    "steps": [
+      "Click #react-burger-menu-btn",
+      "Verify sidebar with All Items, About, Logout, Reset App State links"
+    ],
+    "expected": "Sidebar menu visible with expected links",
+    "priority": "Low",
+    "severity": "Low"
+  }
+]

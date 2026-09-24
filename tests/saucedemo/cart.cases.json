@@ -1,0 +1,66 @@
+[
+  {
+    "id": "TC-CART-001",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Cart page shows added items with correct details",
+    "preconditions": "Logged in as standard_user, at least one item added to cart",
+    "testData": "",
+    "steps": [
+      "Click .shopping_cart_link to go to /cart.html",
+      "Verify cart item list shows added product(s)",
+      "Verify each item has name, description, price, quantity, and remove button"
+    ],
+    "expected": "Cart items display correctly with all details; quantity is 1",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CART-002",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Remove item from cart page works",
+    "preconditions": "Cart has at least one item",
+    "testData": "",
+    "steps": [
+      "Navigate to /cart.html",
+      "Click Remove button on an item",
+      "Verify item is removed from cart list",
+      "Verify .shopping_cart_badge updates or disappears"
+    ],
+    "expected": "Item removed from cart; badge count decrements or disappears",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CART-003",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Continue Shopping returns to inventory",
+    "preconditions": "On /cart.html",
+    "testData": "",
+    "steps": [
+      "Click Continue Shopping button",
+      "Verify navigation back to /inventory.html"
+    ],
+    "expected": "User returned to inventory page",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-CART-004",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Checkout button navigates to checkout step one",
+    "preconditions": "Cart has at least one item, on /cart.html",
+    "testData": "",
+    "steps": [
+      "Click Checkout button",
+      "Verify navigation to /checkout-step-one.html",
+      "Verify checkout form with firstName, lastName, postalCode fields"
+    ],
+    "expected": "Checkout step one page displayed with input fields",
+    "priority": "High",
+    "severity": "High"
+  }
+]

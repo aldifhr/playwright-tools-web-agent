@@ -1,0 +1,324 @@
+[
+  {
+    "id": "TC-LOGIN-001",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Successful login with valid credentials",
+    "preconditions": "User on login page",
+    "testData": "standard_user / secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter 'standard_user' in username field",
+      "Enter 'secret_sauce' in password field",
+      "Click Login button"
+    ],
+    "expected": "Redirect to /inventory.html, 6 products displayed",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-LOGIN-002",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login fails with locked_out_user",
+    "preconditions": "User on login page",
+    "testData": "locked_out_user / secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter 'locked_out_user' in username",
+      "Enter 'secret_sauce' in password",
+      "Click Login"
+    ],
+    "expected": "Error message: 'Sorry, this user has been locked out.'",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-LOGIN-003",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login fails with empty credentials",
+    "preconditions": "User on login page",
+    "testData": "Both fields empty",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Leave username and password empty",
+      "Click Login button"
+    ],
+    "expected": "Error: 'Username is required'",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-LOGIN-004",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login fails with wrong password",
+    "preconditions": "User on login page",
+    "testData": "standard_user / wrong_password",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter 'standard_user' in username",
+      "Enter 'wrong_password' in password",
+      "Click Login"
+    ],
+    "expected": "Error: 'Username and password do not match'",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-PROD-001",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Products page displays all 6 items",
+    "preconditions": "Logged in as standard_user",
+    "testData": "",
+    "steps": [
+      "Login as standard_user",
+      "Verify redirect to /inventory.html",
+      "Count product cards in inventory_container"
+    ],
+    "expected": "6 products with image, title, description, price, Add to cart button",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-PROD-002",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Sort dropdown has 4 sort options",
+    "preconditions": "On inventory page",
+    "testData": "",
+    "steps": [
+      "Check select.product_sort_container options"
+    ],
+    "expected": "Options: Name (A to Z), Name (Z to A), Price (low to high), Price (high to low)",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-PROD-003",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Add to cart updates button and shows badge",
+    "preconditions": "On inventory page, item not yet in cart",
+    "testData": "",
+    "steps": [
+      "Click #add-to-cart-sauce-labs-backpack",
+      "Verify button text changes to 'Remove'",
+      "Verify cart badge .shopping_cart_badge shows '1'"
+    ],
+    "expected": "Button becomes Remove, cart badge = 1",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-PROD-004",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Product detail page shows full item info",
+    "preconditions": "Logged in",
+    "testData": "",
+    "steps": [
+      "Click #item_4_title_link (Backpack)",
+      "Verify image, name, description, price, Add to cart button"
+    ],
+    "expected": "Detail page shows product info with Add to cart button",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-CART-001",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Cart shows added items with correct details",
+    "preconditions": "1 item added to cart",
+    "testData": "",
+    "steps": [
+      "Add Sauce Labs Backpack",
+      "Click .shopping_cart_link",
+      "Verify item details on /cart.html"
+    ],
+    "expected": "Cart shows item name, description, price, qty, Remove button",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CART-002",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Remove item from cart",
+    "preconditions": "1 item in cart",
+    "testData": "",
+    "steps": [
+      "Navigate to cart",
+      "Click Remove on item",
+      "Verify cart empty and badge gone"
+    ],
+    "expected": "Item removed, cart empty, badge hidden",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CART-003",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Continue Shopping returns to products",
+    "preconditions": "On cart page",
+    "testData": "",
+    "steps": [
+      "Click Continue Shopping button"
+    ],
+    "expected": "Return to /inventory.html",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-CART-004",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Checkout button navigates to step one",
+    "preconditions": "1+ items in cart",
+    "testData": "",
+    "steps": [
+      "Click Checkout button"
+    ],
+    "expected": "Navigate to /checkout-step-one.html",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CHECK-001",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Complete checkout flow with one item",
+    "preconditions": "Logged in, 1 item in cart",
+    "testData": "First=John, Last=Doe, Zip=12345",
+    "steps": [
+      "Navigate to cart, click Checkout",
+      "Fill first/last name, postal code on step-one",
+      "Click Continue",
+      "Verify step-two: item, subtotal, tax, total",
+      "Click Finish",
+      "Verify confirmation page"
+    ],
+    "expected": "Full checkout completes, confirmation page shown",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CHECK-002",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "Checkout step one fails with empty fields",
+    "preconditions": "Logged in, 1 item in cart",
+    "testData": "",
+    "steps": [
+      "Navigate to /checkout-step-one.html",
+      "Leave all fields empty",
+      "Click Continue"
+    ],
+    "expected": "Error: 'First Name is required'",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-CHECK-003",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Cancel checkout returns to cart",
+    "preconditions": "On checkout step one",
+    "testData": "",
+    "steps": [
+      "Click Cancel on step-one"
+    ],
+    "expected": "Return to /cart.html",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-CHECK-004",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Overview shows correct order totals",
+    "preconditions": "Items in cart, on step-two",
+    "testData": "",
+    "steps": [
+      "Add multiple items, complete step-one",
+      "On step-two: verify item count, subtotal, tax (8%), total"
+    ],
+    "expected": "Totals correct: total = subtotal + tax",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CHECKOUT-001",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Complete checkout flow with valid info",
+    "preconditions": "Logged in, item in cart, on checkout-step-one",
+    "testData": "firstName: John, lastName: Doe, postalCode: 12345",
+    "steps": [
+      "Fill #first-name with 'John'",
+      "Fill #last-name with 'Doe'",
+      "Fill #postal-code with '12345'",
+      "Click #continue",
+      "Verify /checkout-step-two.html with order summary",
+      "Click #finish",
+      "Verify /checkout-complete.html with confirmation message"
+    ],
+    "expected": "Checkout completes; confirmation page shows 'Thank you for your order!'",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CHECKOUT-002",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "Checkout step one fails with empty first name",
+    "preconditions": "Logged in, item in cart, on checkout-step-one",
+    "testData": "firstName: (empty), lastName: Doe, postalCode: 12345",
+    "steps": [
+      "Leave #first-name empty",
+      "Fill #last-name with 'Doe'",
+      "Fill #postal-code with '12345'",
+      "Click #continue"
+    ],
+    "expected": "Error: 'Error: First Name is required'",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CHECKOUT-003",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Cancel checkout returns to inventory",
+    "preconditions": "On checkout-step-one.html",
+    "testData": "",
+    "steps": [
+      "Click Cancel button",
+      "Verify navigation back to /inventory.html"
+    ],
+    "expected": "User returned to inventory page",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-CHECKOUT-004",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Checkout step two shows correct item summary, subtotal, tax, total",
+    "preconditions": "Logged in, Sauce Labs Backpack in cart, on checkout-step-two",
+    "testData": "",
+    "steps": [
+      "Verify item name 'Sauce Labs Backpack' in summary",
+      "Verify price matches inventory page",
+      "Verify subtotal = item price × quantity",
+      "Verify tax = subtotal × 0.08",
+      "Verify total = subtotal + tax"
+    ],
+    "expected": "Order summary matches cart contents and calculations are correct",
+    "priority": "High",
+    "severity": "High"
+  }
+]

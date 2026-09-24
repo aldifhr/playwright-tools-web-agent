@@ -1,0 +1,62 @@
+[
+  {
+    "id": "TC-PROD-001",
+    "area": "Products",
+    "type": "Positive",
+    "title": "All 6 products displayed on inventory page",
+    "preconditions": "User logged in as standard_user",
+    "testData": "",
+    "steps": [
+      "Login and navigate to /inventory.html",
+      "Count product items in #inventory_container"
+    ],
+    "expected": "6 product cards visible: Backpack, Bike Light, Bolt T-Shirt, Fleece Jacket, Onesie, Test.allTheThings() T-Shirt",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-PROD-002",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Sort dropdown has 4 sort options",
+    "preconditions": "User on inventory page",
+    "testData": "",
+    "steps": [
+      "Locate select.product_sort_container",
+      "Count option elements"
+    ],
+    "expected": "4 options: Name (A to Z), Name (Z to A), Price (low to high), Price (high to low)",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-PROD-003",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Add item to cart shows badge count",
+    "preconditions": "User on inventory page, cart empty",
+    "testData": "",
+    "steps": [
+      "Click #add-to-cart-sauce-labs-backpack",
+      "Check .shopping_cart_badge"
+    ],
+    "expected": "Badge shows '1', button changes to 'Remove'",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-PROD-004",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Product detail page accessible via title link",
+    "preconditions": "User on inventory page",
+    "testData": "",
+    "steps": [
+      "Click #item_4_title_link for Sauce Labs Backpack",
+      "Verify detail page loads"
+    ],
+    "expected": "Detail page shows product name, description, price, image, Add to cart button",
+    "priority": "Medium",
+    "severity": "Medium"
+  }
+]

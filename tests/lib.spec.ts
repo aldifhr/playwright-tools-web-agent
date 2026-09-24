@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { sanitizeFile, casesFile, saveCases, saveCaseResults, readCasesWithResults, deleteSpec } from "../src/lib/specs";
+import { sanitizeFile, casesFile, saveCases, mergeCases, readCases, saveCaseResults, readCasesWithResults, deleteSpec } from "../src/lib/specs";
+import { parseExplorationScope } from "../src/lib/exploration";
 import { saveFact } from "../src/lib/memory";
 import { assertPublicTarget } from "../src/lib/ssrf";
 import { isReadOnlyCommand } from "../src/lib/browser";
@@ -27,6 +28,41 @@ test("sanitizeFile neutralizes traversal via basename, rejects bad extensions", 
 test("casesFile maps a spec name to its .cases.json artifact", () => {
   expect(casesFile("login-saucedemo.spec.ts")).toBe("login-saucedemo.cases.json");
   expect(casesFile("login-saucedemo")).toBe("login-saucedemo.cases.json");
+});
+
+test("exploration scope extracts areas, priority, and continuation", () => {
+  expect(parseExplorationScope("Continue https://example.com login and checkout, critical, max 8 browser actions")).toEqual({
+    site: "https://example.com",
+    areas: ["login", "checkout"],
+    priority: "critical",
+    maxActions: 8,
+    continue: true,
+  });
+});
+
+test("exploration scope does not treat a handoff mention as re-entry", () => {
+  expect(parseExplorationScope("Explore login and report the next area for continue").continue).toBe(false);
+});
+
+test("incremental case merge replaces duplicate ids and preserves prior areas", async () => {
+  const file = "tmp-merge.spec.ts";
+  await saveCases(file, [
+    { id: "TC-001", area: "Login", type: "Positive", title: "valid login", preconditions: "", testData: "", steps: ["open page"], expected: "dashboard", priority: "High", severity: "High" },
+  ]);
+  try {
+    await mergeCases(file, [
+      { id: "TC-001", area: "Login", type: "Positive", title: "valid login", preconditions: "", testData: "", steps: ["open page", "submit form"], expected: "dashboard", priority: "High", severity: "High" },
+      { id: "TC-002", area: "Checkout", type: "Positive", title: "pay order", preconditions: "", testData: "", steps: ["open checkout"], expected: "confirmation", priority: "High", severity: "High" },
+    ]);
+    const cases = await readCases(file);
+    expect(cases).toHaveLength(2);
+    expect(cases.find((item) => item.id === "TC-001")?.steps).toEqual(["open page", "submit form"]);
+    expect(cases.find((item) => item.id === "TC-002")?.area).toBe("Checkout");
+  } finally {
+    await deleteSpec(file).catch(() => null);
+    const { deleteCases } = await import("../src/lib/specs");
+    await deleteCases(file);
+  }
 });
 
 test("saveFact rejects secrets before touching disk", () => {

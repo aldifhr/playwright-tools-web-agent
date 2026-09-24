@@ -26,3 +26,5 @@
 - sauce-demo product title link locator: #item_{id}_title_link
 - qabrains.com ecommerce login uses #email, #password, button.btn-submit.uppercase
 - qabrains.com ecommerce products page at /ecommerce with 9 products (ids 1-9), has sort dropdown, search/filter
+- saucedemo cart page is at /cart.html with shopping_cart_link, item count badge .shopping_cart_badge, and Checkout/Continue Shopping buttons
+- saucedemo checkout steps: step-one (fill name/zip), step-two (overview with items, subtotal, tax, total), finish shows confirmation page

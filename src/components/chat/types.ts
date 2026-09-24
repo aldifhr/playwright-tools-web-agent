@@ -10,6 +10,13 @@ export type Msg = {
   model?: string;
   skills?: string[];
   usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  browserActions?: number;
+  artifactActions?: number;
+  modelRounds?: number;
+  requestedAreas?: string[];
+  completedAreas?: string[];
+  coverage?: { requestedAreas: string[]; visitedAreas: string[]; coveredAreas: string[]; missingAreas: string[] };
+  stopReason?: "completed" | "action_limit" | "model_timeout" | "model_round_limit";
   time?: string;
 };
 

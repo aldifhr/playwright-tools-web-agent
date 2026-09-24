@@ -21,6 +21,13 @@ import type { ProviderId } from "@/lib/providers";
 
 export const SUGGESTIONS = [
   {
+    icon: ClipboardList,
+    title: "Chunked exploration",
+    desc: "Cover one critical area and save its artifact",
+    prompt:
+      "Explore https://www.saucedemo.com — login and products only. Prioritize the critical path, keep this request to about 8-10 browser actions, save the cases incrementally, and tell me what to continue next.",
+  },
+  {
     icon: TrendingUp,
     title: "Exploratory testing",
     desc: "Explore saucedemo and list testable areas",

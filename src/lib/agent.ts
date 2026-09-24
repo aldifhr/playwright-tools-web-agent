@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as browser from "./browser";
-import { saveSpec, runSpec, saveCases, saveCaseResults, savePlanDocument, recordRun, listSpecs } from "./specs";
+import { saveSpec, runSpec, mergeCases, saveCaseResults, savePlanDocument, recordRun, listSpecs } from "./specs";
 import { saveFact, forgetFact } from "./memory";
 import { RUN_CANCELLED } from "./runs";
 import { recordToolLog } from "./tool-logs";
@@ -43,7 +43,8 @@ export function getBrowserTools(
   awaitApproval?: (toolName: string, input: unknown) => Promise<boolean>,
   // Isolated browser session for this run. When set, all browser tools act
   // on the run's own BrowserContext; when unset they use the shared page.
-  runId?: string
+  runId?: string,
+  canExecute?: (toolName: string) => boolean
 ) {
   // Session id captured once — every tool lambda below closes over it.
   const sid = runId;
@@ -53,6 +54,9 @@ export function getBrowserTools(
   ) => {
     return async (input: T) => {
       if (shouldAbort?.()) throw new Error(RUN_CANCELLED);
+      if (canExecute && !canExecute(toolName)) {
+        throw new Error("Browser action budget reached. Save the current artifact and report the next area.");
+      }
       if (APPROVAL_TOOLS.has(toolName)) {
         if (!awaitApproval) {
           // No approval channel (e.g. sub-agent): deny by default.
@@ -607,7 +611,7 @@ export function getBrowserTools(
             severity: (["High", "Medium", "Low"].includes(c.severity as string) ? c.severity : "Medium") as "High" | "Medium" | "Low",
           }));
           if (!cases.length) throw new Error("cases cannot be empty");
-          return saveCases(input.file, cases);
+          return mergeCases(input.file, cases);
         }
       ),
     }),

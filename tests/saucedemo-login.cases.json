@@ -1,0 +1,70 @@
+[
+  {
+    "id": "TC-LOGIN-001",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Valid login with standard_user redirects to inventory",
+    "preconditions": "User on login page at https://www.saucedemo.com",
+    "testData": "username: standard_user, password: secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter 'standard_user' in #user-name",
+      "Enter 'secret_sauce' in #password",
+      "Click #login-button"
+    ],
+    "expected": "User redirected to /inventory.html with 6 products, sidebar menu accessible",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-LOGIN-002",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Invalid credentials show error",
+    "preconditions": "User on login page",
+    "testData": "username: invalid_user, password: wrong",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter 'invalid_user' in #user-name",
+      "Enter 'wrong' in #password",
+      "Click #login-button"
+    ],
+    "expected": "Error message at h3[data-test='error'], stays on login page",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-LOGIN-003",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Locked out user cannot login",
+    "preconditions": "User on login page",
+    "testData": "username: locked_out_user, password: secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter 'locked_out_user' in #user-name",
+      "Enter 'secret_sauce' in #password",
+      "Click #login-button"
+    ],
+    "expected": "Locked out error message, stays on login page",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-LOGIN-004",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Empty credentials show error",
+    "preconditions": "User on login page",
+    "testData": "empty credentials",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Leave #user-name empty",
+      "Leave #password empty",
+      "Click #login-button"
+    ],
+    "expected": "Error message about required fields",
+    "priority": "Medium",
+    "severity": "Medium"
+  }
+]

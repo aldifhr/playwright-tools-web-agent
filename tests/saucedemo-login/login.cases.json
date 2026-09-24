@@ -1,0 +1,70 @@
+[
+  {
+    "id": "TC-LOGIN-001",
+    "area": "Login",
+    "type": "Positive",
+    "title": "Valid login with standard_user",
+    "preconditions": "User is on the login page",
+    "testData": "username=standard_user, password=secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter standard_user in #user-name",
+      "Enter secret_sauce in #password",
+      "Click #login-button"
+    ],
+    "expected": "Redirected to /inventory.html, inventory page loads with products",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-LOGIN-002",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with invalid credentials shows error",
+    "preconditions": "User is on the login page",
+    "testData": "username=invalid_user, password=wrong_pass",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter invalid_user in #user-name",
+      "Enter wrong_pass in #password",
+      "Click #login-button"
+    ],
+    "expected": "Error message displayed: 'Username and password do not match'",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-LOGIN-003",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with empty fields shows error",
+    "preconditions": "User is on the login page",
+    "testData": "username=(empty), password=(empty)",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Leave #user-name empty",
+      "Leave #password empty",
+      "Click #login-button"
+    ],
+    "expected": "Error message displayed: 'Username is required'",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-LOGIN-004",
+    "area": "Login",
+    "type": "Negative",
+    "title": "Login with locked_out_user shows locked error",
+    "preconditions": "User is on the login page",
+    "testData": "username=locked_out_user, password=secret_sauce",
+    "steps": [
+      "Navigate to https://www.saucedemo.com",
+      "Enter locked_out_user in #user-name",
+      "Enter secret_sauce in #password",
+      "Click #login-button"
+    ],
+    "expected": "Error message: 'Epic sadface: Sorry, this user has been locked out'",
+    "priority": "High",
+    "severity": "Medium"
+  }
+]

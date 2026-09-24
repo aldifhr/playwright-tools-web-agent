@@ -1,0 +1,147 @@
+[
+  {
+    "id": "TC-PROD-001",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Inventory page displays 6 products with add-to-cart buttons",
+    "preconditions": "User logged in as standard_user",
+    "testData": "",
+    "steps": [
+      "Navigate to /inventory.html",
+      "Verify 6 product items rendered",
+      "Verify each product has image, title link, description, price, and Add to cart button"
+    ],
+    "expected": "6 products visible: Backpack, Bike Light, Bolt T-Shirt, Fleece Jacket, Onesie, Test.allTheThings() T-Shirt. Each has #add-to-cart-sauce-labs-{name} button",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-PROD-002",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Sort dropdown has 4 options",
+    "preconditions": "User logged in, on /inventory.html",
+    "testData": "",
+    "steps": [
+      "Locate select.product_sort_container",
+      "Verify 4 sort options: Name (A to Z), Name (Z to A), Price (low to high), Price (high to low)"
+    ],
+    "expected": "Sort dropdown with 4 options functioning correctly",
+    "priority": "Medium",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-PROD-003",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Add to cart updates badge and toggles button",
+    "preconditions": "User logged in, on /inventory.html",
+    "testData": "",
+    "steps": [
+      "Click #add-to-cart-sauce-labs-backpack",
+      "Verify .shopping_cart_badge shows '1'",
+      "Verify button text changes to 'Remove' (#remove-sauce-labs-backpack)"
+    ],
+    "expected": "Badge shows count 1, button toggled to Remove",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CART-001",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Cart page shows added items with quantity and remove option",
+    "preconditions": "User added Backpack to cart",
+    "testData": "",
+    "steps": [
+      "Click .shopping_cart_link",
+      "Verify /cart.html loads",
+      "Verify item name, description, price displayed",
+      "Verify quantity is 1",
+      "Verify Remove button present"
+    ],
+    "expected": "Cart shows Sauce Labs Backpack, qty 1, price, description, Remove button",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CART-002",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "Checkout button navigates to step one",
+    "preconditions": "Cart has at least one item",
+    "testData": "",
+    "steps": [
+      "On /cart.html",
+      "Click #checkout"
+    ],
+    "expected": "Navigated to /checkout-step-one.html with Checkout: Your Information form",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CHECKOUT-001",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Step one: fill shipping info and proceed to overview",
+    "preconditions": "On /checkout-step-one.html",
+    "testData": "firstName: John, lastName: Doe, zip: 12345",
+    "steps": [
+      "Enter 'John' in #first-name",
+      "Enter 'Doe' in #last-name",
+      "Enter '12345' in #postal-code",
+      "Click #continue"
+    ],
+    "expected": "Navigated to /checkout-step-one.html (overview) showing items, subtotal, tax, total",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CHECKOUT-002",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Step two: overview displays correct totals and finish completes order",
+    "preconditions": "On /checkout-step-two.html with item in cart",
+    "testData": "",
+    "steps": [
+      "Verify item listed with price",
+      "Verify subtotal, tax, and total calculated",
+      "Click #finish"
+    ],
+    "expected": "Navigated to /checkout-complete.html with 'THANK YOU FOR YOUR ORDER' confirmation",
+    "priority": "High",
+    "severity": "High"
+  },
+  {
+    "id": "TC-CHECKOUT-003",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "Step one with missing fields shows error",
+    "preconditions": "On /checkout-step-one.html",
+    "testData": "",
+    "steps": [
+      "Leave all fields empty",
+      "Click #continue"
+    ],
+    "expected": "Error: First Name is required (at .error-message-container)",
+    "priority": "High",
+    "severity": "Medium"
+  },
+  {
+    "id": "TC-CHECKOUT-004",
+    "area": "Checkout",
+    "type": "Negative",
+    "title": "Step one with missing postal code shows error",
+    "preconditions": "On /checkout-step-one.html",
+    "testData": "firstName: John, lastName: Doe, zip: (empty)",
+    "steps": [
+      "Enter 'John' in #first-name",
+      "Enter 'Doe' in #last-name",
+      "Leave #postal-code empty",
+      "Click #continue"
+    ],
+    "expected": "Error: Postal/ZIP Code is required",
+    "priority": "Medium",
+    "severity": "Medium"
+  }
+]

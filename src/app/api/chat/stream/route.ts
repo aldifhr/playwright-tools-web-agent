@@ -21,10 +21,12 @@ import { assertPublicTarget } from "@/lib/ssrf";
 import { flushLogs } from "@/lib/tool-logs";
 import { guardApi } from "@/lib/api-guard";
 import { leave, tryEnter } from "@/lib/rate-limit";
+import { parseExplorationScope, readExplorationCheckpoint, saveExplorationCheckpoint } from "@/lib/exploration";
 export const maxDuration = 300;
-// Generous budget for full-coverage explorations. Override with MAX_AGENT_STEPS.
-// The per-step 120s timeout and the concurrent-run cap remain as backstops.
-const MAX_STEPS = Math.max(10, Number(process.env.MAX_AGENT_STEPS) || 100);
+// No action cap by default. Set MAX_AGENT_STEPS or mention a limit in the
+// request when a bounded chunk is desired; cancellation and step timeouts
+// remain the backstops for an intentionally open-ended exploration.
+const MAX_STEPS = Number(process.env.MAX_AGENT_STEPS) || Number.POSITIVE_INFINITY;
 
 function phaseFor(toolName?: string): string {
   if (!toolName) return "Explore";
@@ -64,6 +66,26 @@ function thinkingFor(toolName?: string, input?: unknown) {  const values = typeo
     case "test_assert": return "Running a deterministic assertion to verify the expected outcome.";
     default: return "Choosing the next QA action from the latest observation.";
   }
+}
+
+function isBrowserAction(toolName: string) {
+  return toolName.startsWith("browser_") || toolName === "test_assert";
+}
+
+function isArtifactAction(toolName: string) {
+  return ["test_plan", "test_plan_document", "test_save", "test_run", "test_record"].includes(toolName);
+}
+
+function areaForUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const path = new URL(value).pathname.toLowerCase();
+    if (path.includes("checkout")) return "checkout";
+    if (path.includes("cart")) return "cart";
+    if (path.includes("inventory")) return "products";
+    if (path === "/" || path.endsWith("/index.html")) return "login";
+  } catch {}
+  return null;
 }
 
 const StreamBodySchema = z.object({
@@ -143,6 +165,13 @@ async function handleStream(
   // The prompt is stable for the lifetime of a run. Rebuilding it per tool
   // step rereads MEMORY.md and every approved skill unnecessarily.
   const systemPrompt = getSystemPrompt({ provider, model: chosenModel, baseUrl });
+  const latestUserPrompt = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+  const scope = parseExplorationScope(latestUserPrompt);
+  const previousCheckpoint = scope.continue ? await readExplorationCheckpoint(scope.site) : null;
+  let completedAreas = previousCheckpoint?.completedAreas ?? [];
+  const currentArea = scope.areas.find((area) => !completedAreas.includes(area)) ?? scope.areas[0];
+  const nextArea = scope.areas.find((area) => area !== currentArea && !completedAreas.includes(area)) ?? "";
+  const executionPrompt = `${systemPrompt}\n\n---\n# Current exploration scope\n${JSON.stringify({ ...scope, completedAreas, currentArea, nextArea }, null, 2)}\nExplore every requested area, including currentArea, before declaring the exploration complete. An area is covered only after a browser tool result visibly reaches that area's URL/state; writing cases or inferring known locators does not count as exploration. Do not claim a flow was completed if its page was not reached and verified. Save incremental artifacts as each area is finished. ${Number.isFinite(scope.maxActions) ? `Use at most ${scope.maxActions} browser actions.` : "There is no browser-action budget; continue through all requested areas until coverage is complete or a real blocker occurs."} Execute at most one tool call per model round. Do not save the same artifact repeatedly unless adding genuinely new cases; after an artifact is saved, continue the browser flow.`;
   // Skill exposure telemetry: which skill ids were loaded into this run's prompt.
   const runSkillIds = loadInstalledSkillsSync().map((s) => s.id);
   const wantsVisualEvidence = messages.some(
@@ -235,8 +264,16 @@ async function handleStream(
           return promise;
         };
 
+        const actionLimit = Math.max(1, Math.min(MAX_STEPS, scope.maxActions));
+        let browserActionsExecuted = 0;
+        const toolCalls: { tool: string; input: unknown }[] = [];
+
         const tools = getBrowserTools(
           (toolName, input) => {
+             if (isBrowserAction(toolName)) {
+               browserActionsExecuted += 1;
+             }
+             toolCalls.push({ tool: toolName, input });
              lastLabel = statusLabel(toolName, input);
              lastPhase = phaseFor(toolName);
              send("status", { label: lastLabel, thinking: thinkingFor(toolName, input), phase: lastPhase, agent: "main" });
@@ -244,18 +281,21 @@ async function handleStream(
           () => isCancelled(runId),
           delegateTask,
           awaitApproval,
-          runId
+          runId,
+          (toolName) => !isBrowserAction(toolName) || browserActionsExecuted < actionLimit
         );
 
         let modelMessages: ModelMessage[] = messages.map((m) => ({
           role: m.role,
           content: m.content,
         }));
-        const toolCalls: { tool: string; input: unknown }[] = [];
         const screenshots: { url: string; image: string }[] = [];
         const artifacts: { kind: string; file: string; meta: Record<string, unknown> }[] = [];
+        const observedAreas = new Set<string>();
+        const verifiedAreas = new Set<string>();
         let fullText = "";
         let usage: unknown = null;
+        let modelRounds = 0;
         let lastShotUrl: string | null = null;
         let lastLabel = "Working…";
         let lastPhase = "Explore";
@@ -266,19 +306,38 @@ async function handleStream(
         // loop retry (or finish with a partial summary after repeated timeouts).
         const STEP_TIMEOUT_MS = 120_000;
         let capped = false;
+        let stopReason: "completed" | "action_limit" | "model_timeout" | "model_round_limit" = "completed";
         const MAX_AUTO_SHOTS = 6;
+        await saveExplorationCheckpoint({
+          runId,
+          ...scope,
+          completedAreas,
+          currentArea,
+          nextArea,
+          lastAction: previousCheckpoint?.lastAction ?? "",
+        });
 
-        for (let i = 0; i < MAX_STEPS; i++) {
+        // Artifact saves and the final text need rounds of their own; they do
+        // not consume the browser-action budget.
+        const maxModelRounds = Number.isFinite(actionLimit) ? actionLimit + 8 : Number.POSITIVE_INFINITY;
+        const reportingTools = Object.fromEntries(
+          Object.entries(tools).filter(([name]) => !isBrowserAction(name))
+        );
+        let browserBudgetReached = false;
+        let budgetWarningSent = false;
+        for (let i = 0; i < maxModelRounds; i++) {
           if (isCancelled(runId)) {
             send("aborted", {});
             return;
           }
-          // Budget warning at 75%: nudge the model to stop exploring and
-          // start writing the final structured report (P2 — no silent caps).
-          if (i === Math.floor(MAX_STEPS * 0.75)) {
+          const browserActionCount = toolCalls.filter((call) => isBrowserAction(call.tool)).length;
+          // Warn based on real browser actions, not model rounds consumed by
+          // incremental artifact saves.
+          if (!budgetWarningSent && browserActionCount >= Math.floor(actionLimit * 0.75)) {
+            budgetWarningSent = true;
             send("status", {
               label: lastLabel,
-              thinking: "Budget at 75% — finish exploring now and write the final report with the required sections. Do not start new exploration threads.",
+              thinking: "Browser action budget is nearly full — finish the current area, save its artifact, and report the next area. Do not start a new browser flow.",
               phase: lastPhase,
               agent: "main",
             });
@@ -288,10 +347,13 @@ async function handleStream(
            const stepSignal = AbortSignal.any([req.signal, AbortSignal.timeout(STEP_TIMEOUT_MS)]);
            const outcome = await generateText({
              model: llm,
-             system: systemPrompt,
+             system: executionPrompt,
              messages: modelMessages,
-             tools,
+             tools: browserBudgetReached ? reportingTools : tools,
              stopWhen: stepCountIs(1),
+             providerOptions: provider === "openai"
+               ? { openai: { parallelToolCalls: false } }
+               : undefined,
              abortSignal: stepSignal,
            }).then(
              (r) => ({ ok: true as const, r }),
@@ -303,7 +365,17 @@ async function handleStream(
                return;
              }
              consecutiveTimeouts += 1;
-             if (consecutiveTimeouts > MAX_CONSECUTIVE_TIMEOUTS) break;
+             if (consecutiveTimeouts > MAX_CONSECUTIVE_TIMEOUTS) {
+               stopReason = "model_timeout";
+               capped = true;
+               send("status", {
+                 label: "Model timeout",
+                 thinking: "The model timed out three times. The run stopped before reliable browser exploration completed; retry or split the scope into a smaller request.",
+                 phase: "Reporting",
+                 agent: "main",
+               });
+               break;
+             }
              send("status", {
                label: lastLabel,
                thinking: `Model step timed out after 120s (${consecutiveTimeouts}/3) — retrying the step.`,
@@ -314,6 +386,7 @@ async function handleStream(
            }
            const result = outcome.r;
            consecutiveTimeouts = 0;
+          modelRounds += 1;
           const step = result.steps[0];
           usage = result.usage ?? usage;
           if (result.text) fullText += (fullText ? "\n" : "") + result.text;
@@ -329,19 +402,70 @@ async function handleStream(
             });
           }
 
-          for (const tc of step?.toolCalls ?? []) {
-            toolCalls.push({ tool: tc.toolName, input: tc.input });
+          const lastTool = step?.toolCalls?.at(-1)?.toolName;
+          if (lastTool) {
+            await saveExplorationCheckpoint({
+              runId,
+              ...scope,
+              completedAreas,
+              currentArea,
+              nextArea,
+              lastAction: lastTool,
+            });
           }
            for (const tr of step?.toolResults ?? []) {
               const out = tr.output as unknown;
+              if (out && typeof out === "object") {
+                const output = out as Record<string, unknown>;
+                const observed = areaForUrl(output.url);
+                if (observed) {
+                  observedAreas.add(observed);
+                  const toolName = tr.toolName;
+                  if (["browser_snapshot", "browser_get_text", "test_assert"].includes(toolName)) {
+                    verifiedAreas.add(observed);
+                  }
+                }
+              }
               if (out && typeof out === "object" && "saved" in (out as Record<string, unknown>)) {
                 const result = out as Record<string, unknown>;
                 const file = String(result.saved);
                 const kind = file.endsWith(".md") ? "Test Plan Document" : file.endsWith(".cases.json") ? "Test Cases" : "Automation";
+                const savedAreas = result.areas && typeof result.areas === "object"
+                  ? Object.keys(result.areas as Record<string, unknown>).map((area) => area.toLowerCase())
+                  : [];
+                const unverifiedAreas = savedAreas.filter((area) => !verifiedAreas.has(area));
+                const artifactMeta = {
+                  ...result,
+                  ...(savedAreas.length ? {
+                    coverage: {
+                      artifactAreas: savedAreas,
+                      verifiedAreas: savedAreas.filter((area) => observedAreas.has(area)),
+                      unverifiedAreas,
+                    },
+                  } : {}),
+                  qualityGate: result.qualityGate && typeof result.qualityGate === "object"
+                    ? {
+                        ...(result.qualityGate as Record<string, unknown>),
+                        complete: Boolean((result.qualityGate as Record<string, unknown>).complete) && unverifiedAreas.length === 0,
+                        unverifiedAreas,
+                      }
+                    : result.qualityGate,
+                };
+                if (savedAreas.includes(currentArea.toLowerCase()) && verifiedAreas.has(currentArea.toLowerCase())) {
+                  completedAreas = [...new Set([...completedAreas, currentArea])];
+                  await saveExplorationCheckpoint({
+                    runId,
+                    ...scope,
+                    completedAreas,
+                    currentArea,
+                    nextArea: scope.areas.find((area) => !completedAreas.includes(area)) ?? "",
+                    lastAction: "artifact_saved",
+                  });
+                }
                 // Dedupe by filename: re-saves (e.g. spec fix after a failed
                 // run) replace the earlier entry instead of doubling it.
                 const existing = artifacts.findIndex((a) => a.file === file);
-                const entry = { kind, file, meta: result };
+                const entry = { kind, file, meta: artifactMeta };
                 if (existing >= 0) artifacts[existing] = entry;
                 else artifacts.push(entry);
               }
@@ -381,19 +505,60 @@ async function handleStream(
             } catch {}
           }
 
+          if (browserActionsExecuted >= actionLimit) {
+            browserBudgetReached = true;
+            stopReason = "action_limit";
+          }
           if ((step?.toolCalls?.length ?? 0) === 0) break;
-          if (i === MAX_STEPS - 1) capped = true;
+          if (i === maxModelRounds - 1) {
+            capped = true;
+            stopReason = "model_round_limit";
+          }
         }
 
+        if (!capped) {
+          await saveExplorationCheckpoint({
+            runId,
+            ...scope,
+            completedAreas: [...new Set([...completedAreas, currentArea])],
+            currentArea,
+            nextArea,
+            lastAction: "completed",
+          });
+        }
+
+        const finalBrowserActions = browserActionsExecuted;
+        const coveredAreas = scope.areas.filter((area) => verifiedAreas.has(area.toLowerCase()));
+        const visitedAreas = scope.areas.filter((area) => observedAreas.has(area.toLowerCase()));
+        const capMessage = stopReason === "model_timeout"
+          ? "\n\n---\nRun stopped: the model timed out three times before reliable exploration completed. Retry this request or split it into a smaller area."
+          : stopReason === "action_limit"
+            ? `\n\n---\nStopped early: reached the ${actionLimit}-browser-action limit before finishing. Ask me to continue from where it left off.`
+            : stopReason === "model_round_limit"
+              ? `\n\n---\nStopped after ${maxModelRounds} model rounds with ${finalBrowserActions} browser actions. Ask me to continue from where it left off.`
+              : "";
+        const runFacts = `\n\n---\nRun facts (server-verified): ${finalBrowserActions} browser actions executed. Verified areas: ${coveredAreas.length ? coveredAreas.join(", ") : "none"}.${visitedAreas.filter((area) => !coveredAreas.includes(area)).length ? ` Visited only: ${visitedAreas.filter((area) => !coveredAreas.includes(area)).join(", ")}.` : ""}${scope.areas.filter((area) => !coveredAreas.includes(area)).length ? ` Next requested area: ${scope.areas.find((area) => !coveredAreas.includes(area))}.` : " All requested areas verified."}`;
         send("done", {
           text:
-            fullText.trim() + (capped ? `\n\n---\nStopped early: reached the ${MAX_STEPS}-step limit before finishing. Ask me to continue from where it left off.` : "") ||
+            fullText.trim() + capMessage + runFacts ||
             (capped
               ? "Agent reached the step limit before finishing the summary. Continue from the last exploration or split the request into smaller areas."
               : "Tools finished, but the model did not send a summary."),
           toolCalls,
            screenshots,
            artifacts,
+          browserActions: toolCalls.filter((call) => isBrowserAction(call.tool)).length,
+          artifactActions: toolCalls.filter((call) => isArtifactAction(call.tool)).length,
+          modelRounds,
+          requestedAreas: scope.areas,
+          completedAreas,
+          coverage: {
+            requestedAreas: scope.areas,
+            visitedAreas,
+            coveredAreas,
+            missingAreas: scope.areas.filter((area) => !coveredAreas.includes(area.toLowerCase())),
+          },
+          stopReason,
           skills: runSkillIds,
           usage,
           model: chosenModel,

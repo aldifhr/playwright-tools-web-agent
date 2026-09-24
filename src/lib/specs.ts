@@ -291,6 +291,35 @@ export async function saveCases(
   };
 }
 
+export async function mergeCases(
+  file: string,
+  incoming: TestCase[]
+) {
+  const existing = await readCases(file);
+  const merged = [...existing];
+  const existingKeys = new Set(existing.map((testCase) => testCase.id || testCase.title.toLowerCase()));
+  let addedCount = 0;
+  let updatedCount = 0;
+  for (const testCase of incoming) {
+    const key = testCase.id || testCase.title.toLowerCase();
+    const index = merged.findIndex((current) => (current.id || current.title.toLowerCase()) === key);
+    if (index >= 0) {
+      merged[index] = testCase;
+      updatedCount += 1;
+    } else if (!existingKeys.has(key)) {
+      merged.push(testCase);
+      existingKeys.add(key);
+      addedCount += 1;
+    }
+  }
+  return {
+    ...(await saveCases(file, merged)),
+    addedCount,
+    updatedCount,
+    totalCount: merged.length,
+  };
+}
+
 export async function deleteSpec(file: string): Promise<{ deleted: string }> {
   const safe = sanitizePath(file);
   await fs.unlink(join(DIR, safe));

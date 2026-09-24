@@ -557,6 +557,13 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
         toolCalls?: { tool: string; input: unknown }[];
         screenshots?: { url: string; image: string }[];
         artifacts?: { kind: string; file: string; meta: Record<string, unknown> }[];
+        browserActions?: number;
+        artifactActions?: number;
+        modelRounds?: number;
+        requestedAreas?: string[];
+        completedAreas?: string[];
+        coverage?: { requestedAreas: string[]; visitedAreas: string[]; coveredAreas: string[]; missingAreas: string[] };
+        stopReason?: "completed" | "action_limit" | "model_timeout" | "model_round_limit";
         skills?: string[];
         usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
       } | null = null;
@@ -615,6 +622,13 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
               toolCalls?: { tool: string; input: unknown }[];
               screenshots?: { url: string; image: string }[];
               artifacts?: { kind: string; file: string; meta: Record<string, unknown> }[];
+              browserActions?: number;
+              artifactActions?: number;
+              modelRounds?: number;
+              requestedAreas?: string[];
+              completedAreas?: string[];
+              coverage?: { requestedAreas: string[]; visitedAreas: string[]; coveredAreas: string[]; missingAreas: string[] };
+              stopReason?: "completed" | "action_limit" | "model_timeout" | "model_round_limit";
               skills?: string[];
               usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
             };
@@ -666,6 +680,13 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
           toolCalls: finalData.toolCalls,
            screenshots: finalData.screenshots,
            artifacts: finalData.artifacts,
+           browserActions: finalData.browserActions,
+           artifactActions: finalData.artifactActions,
+           modelRounds: finalData.modelRounds,
+           requestedAreas: finalData.requestedAreas,
+           completedAreas: finalData.completedAreas,
+           coverage: finalData.coverage,
+           stopReason: finalData.stopReason,
            thinking: thinkingHistoryRef.current,
            skills: finalData.skills,
            usage: finalData.usage,
@@ -754,6 +775,7 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
   }
 
   const PIcon = PROVIDER_META[provider].icon;
+  const isConfigured = Boolean(apiKey.trim() && baseUrl.trim());
 
   return (
     <div className="mesh-bg flex h-screen text-white">
@@ -788,24 +810,38 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
           )}
           <Link
             href="/settings"
-            title="Change model in Settings"
+            title={isConfigured ? "Change model in Settings" : "Complete setup in Settings"}
             className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pr-3 pl-1.5 text-xs text-white transition hover:border-white/30 hover:bg-white/10"
           >
             <span className="grid h-6 w-6 place-items-center rounded-full bg-white">
               <PIcon size={13} className="text-black" />
             </span>
-            <span className="font-semibold">{model}</span>
-            <span className="text-zinc-500">• {PROVIDERS[provider].label}</span>
+            {isConfigured ? (
+              <>
+                <span className="font-semibold">{model}</span>
+                <span className="text-zinc-500">• {PROVIDERS[provider].label}</span>
+              </>
+            ) : (
+              <span className="font-semibold text-amber-300">Setup required</span>
+            )}
             <SettingsIcon size={13} className="text-zinc-500" />
           </Link>
           <div className="ml-auto flex items-center gap-2">
             <Link
               href="/settings"
-              title={apiKey && baseUrl ? "Provider is ready — open Settings" : "Complete the API key and base URL in Settings"}
+              title={
+                !isConfigured
+                  ? "Complete the API key and base URL in Settings"
+                  : error
+                    ? `Last request failed: ${error} — open Settings`
+                    : "Provider is live — open Settings"
+              }
               className="hidden items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] text-zinc-400 transition hover:border-white/30 hover:text-white sm:flex"
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${apiKey && baseUrl ? "bg-emerald-400" : "bg-amber-400"}`} />
-              {apiKey && baseUrl ? "Ready" : "Setup required"}
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${!isConfigured ? "bg-amber-400" : error ? "bg-red-400" : "bg-emerald-400"}`}
+              />
+              {!isConfigured ? "No setup" : error ? "Error" : "Live"}
             </Link>
             <Link
               href="/memory"
@@ -1033,16 +1069,23 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                                 </div>
                                 <div className="mt-3 flex flex-col gap-2">
                                   {m.artifacts.map((artifact, ai) => {
-                                    const quality = artifact.meta.qualityGate as { complete?: boolean; tbdCount?: number; missingFields?: string[] } | undefined;
+                                    const quality = artifact.meta.qualityGate as { complete?: boolean; tbdCount?: number; missingFields?: string[]; unverifiedAreas?: string[] } | undefined;
                                     const areas = artifact.meta.areas as Record<string, number> | undefined;
                                     return <div key={`${artifact.file}-${ai}`} className="rounded-lg border border-white/8 bg-white/5 px-3 py-2">
                                       <div className="flex items-center gap-2"><FileText size={12} className="text-white" /><span className="text-xs font-semibold text-white">{artifact.file}</span><span className="ml-auto text-[10px] text-zinc-500">{artifact.kind}</span></div>
-                                      <p className="mt-1 text-[10px] text-zinc-400">{artifact.kind === "Test Plan Document" ? `${String(artifact.meta.sections ?? 10)} sections • ${String(artifact.meta.projectName ?? "QA project")}` : artifact.kind === "Test Cases" ? `${String(artifact.meta.count ?? 0)} cases • ${areas ? Object.entries(areas).map(([area, count]) => `${area} (${count})`).join(" · ") : "area summary unavailable"}` : "Automation artifact saved"}</p>
-                                      {quality && <p className={`mt-1 text-[10px] ${quality.complete ? "text-emerald-300" : "text-amber-300"}`}>{quality.complete ? "Quality gate passed: file written, no TBD" : `Quality gate warning: ${quality.tbdCount ?? 0} TBD, ${quality.missingFields?.length ?? 0} field(s) missing`}</p>}
+                                      <p className="mt-1 text-[10px] text-zinc-400">{artifact.kind === "Test Plan Document" ? `${String(artifact.meta.sections ?? 10)} sections • ${String(artifact.meta.projectName ?? "QA project")}` : artifact.kind === "Test Cases" ? `${artifact.meta.addedCount !== undefined ? `${String(artifact.meta.addedCount)} new • ${String(artifact.meta.updatedCount ?? 0)} updated • ` : ""}${String(artifact.meta.totalCount ?? artifact.meta.count ?? 0)} total${areas ? ` • ${Object.entries(areas).map(([area, count]) => `${area} (${count})`).join(" · ")}` : ""}` : "Automation artifact saved"}</p>
+                                      {quality && <p className={`mt-1 text-[10px] ${quality.complete ? "text-emerald-300" : "text-amber-300"}`}>{quality.complete ? "Quality gate passed: file written, no TBD" : `Quality gate warning: ${quality.tbdCount ?? 0} TBD, ${quality.missingFields?.length ?? 0} field(s) missing${quality.unverifiedAreas?.length ? `, ${quality.unverifiedAreas.length} unverified area(s): ${quality.unverifiedAreas.join(", ")}` : ""}`}</p>}
                                     </div>;
                                   })}
                                 </div>
                               </div>}
+                              {m.coverage && (() => {
+                                const missingAreas = m.coverage.missingAreas ?? [];
+                                const coveredAreas = m.coverage.coveredAreas ?? [];
+                                const visitedAreas = m.coverage.visitedAreas ?? [];
+                                const visitedOnly = visitedAreas.filter((area) => !coveredAreas.includes(area));
+                                return <p className={`mt-2 text-[10px] ${missingAreas.length ? "text-amber-300" : "text-emerald-300"}`}>Run coverage: {coveredAreas.length ? coveredAreas.join(", ") : "none"}{missingAreas.length ? ` • next: ${missingAreas.join(", ")}` : " • complete"}{visitedOnly.length ? ` • visited only: ${visitedOnly.join(", ")}` : ""}</p>;
+                              })()}
                               {!!m.thinking?.length && <details className="mt-3 border-t border-white/10 pt-2" open={false}>
                                 <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wider text-zinc-500 hover:text-white">Agent activity ({m.thinking.length})</summary>
                                 <div className="mt-2 border-l border-white/15 pl-3">
@@ -1052,7 +1095,9 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                               {!!m.toolCalls?.length && (
                                 <div className="mt-3">
                                   <div className="mb-2 flex flex-wrap gap-1.5">
-                                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">{m.toolCalls.length} browser steps</span>
+                                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">{m.browserActions ?? m.toolCalls.length} browser actions</span>
+                                    {!!m.artifactActions && <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">{m.artifactActions} artifact calls</span>}
+                                    {!!m.modelRounds && <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">{m.modelRounds} model rounds</span>}
                                     {!!m.screenshots?.filter((shot) => !!shot.image).length && <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">{m.screenshots.filter((shot) => !!shot.image).length} screenshots</span>}
                                     {m.toolCalls.some((tool) => tool.tool === "test_run") && <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-zinc-300">Test run</span>}
                                   </div>
@@ -1063,7 +1108,7 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                                     className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 hover:text-white"
                                   >
                                     <Zap size={12} className="text-white" />
-                                    {m.toolCalls.length} browser steps
+                                    {m.browserActions ?? m.toolCalls.length} browser actions
                                     <ChevronDown
                                       size={13}
                                       className={`transition ${expanded[i] ? "rotate-180" : ""}`}
