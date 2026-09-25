@@ -30,14 +30,52 @@ function unique(values: string[]) {
 
 export function parseExplorationScope(text: string): ExplorationScope {
   const lower = text.toLowerCase();
+  const squished = lower.replace(/[^a-z0-9]/g, "");
   const url = text.match(/https?:\/\/[^\s,)]+/i)?.[0] ?? "current site";
-  const knownAreas = ["login", "homepage", "products", "cart", "checkout", "settings", "search", "profile", "admin"];
-  const areas = unique(knownAreas.filter((area) => lower.includes(area)));
+  // Generic area vocabulary for any website (matched compaction-wise so
+  // "sign up" hits "signup", "user-settings" hits "settings"). Kept to nouns
+  // that rarely appear as verbs in instructions; over-scoping is safe because
+  // uncovered areas render as Planned/Unverified, never as verified.
+  const knownAreas = [
+    "login",
+    "logout",
+    "signup",
+    "register",
+    "homepage",
+    "dashboard",
+    "account",
+    "products",
+    "category",
+    "cart",
+    "checkout",
+    "orders",
+    "payment",
+    "navigation",
+    "dynamic catalog",
+    "footer",
+    "settings",
+    "search",
+    "profile",
+    "contact",
+    "pricing",
+    "admin",
+  ];
+  const areas = unique(
+    knownAreas.filter((area) => squished.includes(area.replace(/[^a-z0-9]/g, "")))
+  );
+  const broadExploration = /\b(explore|all|every|testable)\b/.test(lower);
+  const onlyScope = /\bonly\b/.test(lower);
+  // Scope rule: 2+ named areas (or 1 named area without broad words, or with
+  // "only") = explicit list. Otherwise broad words ("explore all…") fall back
+  // to the broad default; a bare prompt with nothing named gets primary flow.
+  // Over-scoping is safe: uncovered areas render as Planned/Unverified.
+  const broadDefault = ["login", "products", "cart", "checkout", "navigation", "dynamic catalog", "footer"];
+  const explicit = areas.length >= 2 || (areas.length === 1 && (!broadExploration || onlyScope));
   const priority = lower.includes("critical") ? "critical" : lower.includes("high") ? "high" : lower.includes("low") ? "low" : "medium";
   const requestedLimit = Number(text.match(/(?:max|limit|about)\s*(\d+)\s*(?:browser\s*)?(?:actions|steps)?/i)?.[1]);
   return {
     site: url,
-    areas: areas.length ? areas : ["primary flow"],
+    areas: explicit ? areas : broadExploration ? broadDefault : ["primary flow"],
     priority,
     maxActions: Number.isFinite(requestedLimit) ? Math.max(1, Math.min(1000, requestedLimit)) : Number.POSITIVE_INFINITY,
     continue: /^\s*(?:\/continue\b|continue\b)/i.test(text),

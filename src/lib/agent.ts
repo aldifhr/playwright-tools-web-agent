@@ -251,7 +251,7 @@ export function getBrowserTools(
       execute: wrap(
         "browser_press",
         async ({ key, selector, frameUrl }: { key: string; selector?: string; frameUrl?: string }) =>
-          browser.pressKey(key, selector || "", sid, frameUrl)
+          browser.pressKey(selector || "", key, sid, frameUrl)
       ),
     }),
     browser_hover: tool({

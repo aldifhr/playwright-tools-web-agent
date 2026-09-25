@@ -401,11 +401,14 @@ async function scoped(p: Page, selector: string, frameUrl?: string) {
 export async function uploadFile(selector: string, fileName: string, content: string, sid?: string, frameUrl?: string) {
   const p = await pickPage(sid);
   const loc = await scoped(p, selector, frameUrl);
-  await loc.setInputFiles({
-    name: fileName,
-    mimeType: "text/plain",
-    buffer: Buffer.from(content, "utf-8"),
-  });
+  await loc.setInputFiles(
+    {
+      name: fileName,
+      mimeType: "text/plain",
+      buffer: Buffer.from(content, "utf-8"),
+    },
+    { timeout: 10000 }
+  );
   await p.waitForTimeout(500);
   return { url: p.url(), uploaded: fileName };
 }
@@ -548,7 +551,7 @@ export async function click(selector: string, sid?: string, frameUrl?: string) {
     await p.waitForTimeout(1200);
     return { url: p.url(), title: await p.title().catch(() => "") };
   }
-  (await scoped(p, selector, frameUrl)).click({ timeout: 10000 });
+  await (await scoped(p, selector, frameUrl)).click({ timeout: 10000 });
   await p.waitForTimeout(800);
   return { url: p.url(), title: await p.title().catch(() => "") };
 }

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { generateText, stepCountIs, type ModelMessage } from "ai";
+import { generateText, generateObject, stepCountIs, type ModelMessage } from "ai";
 import { getModel, PROVIDERS } from "@/lib/providers";
 import {
   getBrowserTools,
@@ -22,6 +22,17 @@ import { flushLogs } from "@/lib/tool-logs";
 import { guardApi } from "@/lib/api-guard";
 import { leave, tryEnter } from "@/lib/rate-limit";
 import { parseExplorationScope, readExplorationCheckpoint, saveExplorationCheckpoint } from "@/lib/exploration";
+import {
+  ReportDataSchema,
+  areaForUrl,
+  areaSignalsFor,
+  looksLikeErrorPage,
+  renderFallbackReport,
+  renderReportMarkdown,
+  urlMatchesArea,
+  type EvidenceEntry,
+  type TestRunSummary,
+} from "@/lib/report";
 export const maxDuration = 300;
 // No action cap by default. Set MAX_AGENT_STEPS or mention a limit in the
 // request when a bounded chunk is desired; cancellation and step timeouts
@@ -74,18 +85,6 @@ function isBrowserAction(toolName: string) {
 
 function isArtifactAction(toolName: string) {
   return ["test_plan", "test_plan_document", "test_save", "test_run", "test_record"].includes(toolName);
-}
-
-function areaForUrl(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  try {
-    const path = new URL(value).pathname.toLowerCase();
-    if (path.includes("checkout")) return "checkout";
-    if (path.includes("cart")) return "cart";
-    if (path.includes("inventory")) return "products";
-    if (path === "/" || path.endsWith("/index.html")) return "login";
-  } catch {}
-  return null;
 }
 
 const StreamBodySchema = z.object({
@@ -293,6 +292,12 @@ async function handleStream(
         const artifacts: { kind: string; file: string; meta: Record<string, unknown> }[] = [];
         const observedAreas = new Set<string>();
         const verifiedAreas = new Set<string>();
+        // Evidence ledger: every SUCCESSFUL browser fact the final report
+        // may cite. Failed/denied tool calls are never evidence.
+        // The LLM never writes the final table — renderReportMarkdown() does,
+        // using only entries recorded here.
+        const ledger: EvidenceEntry[] = [];
+        const testRuns: TestRunSummary[] = [];
         let fullText = "";
         let usage: unknown = null;
         let modelRounds = 0;
@@ -307,6 +312,7 @@ async function handleStream(
         const STEP_TIMEOUT_MS = 120_000;
         let capped = false;
         let stopReason: "completed" | "action_limit" | "model_timeout" | "model_round_limit" = "completed";
+        let earlyStops = 0;
         const MAX_AUTO_SHOTS = 6;
         await saveExplorationCheckpoint({
           runId,
@@ -413,17 +419,117 @@ async function handleStream(
               lastAction: lastTool,
             });
           }
-           for (const tr of step?.toolResults ?? []) {
+           for (let ti = 0; ti < (step?.toolResults ?? []).length; ti += 1) {
+             const tr = (step?.toolResults ?? [])[ti];
+             // Fix 1: failed or denied tool calls are NOT evidence. A click on
+             // a nonexistent selector must not land its selector in the report.
+             const trRec = tr as unknown as Record<string, unknown>;
+             if (
+               trRec.state === "output-error" ||
+               trRec.state === "output-denied" ||
+               trRec.isError === true ||
+               typeof trRec.errorText === "string"
+             ) {
+               continue;
+             }
+             const tc = (step?.toolCalls ?? [])[ti] as unknown as
+               | { args?: unknown; input?: unknown }
+               | undefined;
+             const rawArgs = (tc?.args ?? tc?.input ?? {}) as Record<string, unknown>;
+             const toolName = tr.toolName;
+             const selector =
+               typeof rawArgs.selector === "string"
+                 ? rawArgs.selector
+                 : typeof rawArgs.from === "string"
+                   ? `${String(rawArgs.from)} → ${String(rawArgs.to ?? "")}`
+                   : undefined;
               const out = tr.output as unknown;
               if (out && typeof out === "object") {
                 const output = out as Record<string, unknown>;
+                // Error pages are visits, never verification — a snapshot of
+                // a 404 must not mark its area Verified.
+                const pageText =
+                  typeof output.elements === "string"
+                    ? output.elements
+                    : typeof output.text === "string"
+                      ? output.text
+                      : typeof output.actual === "string"
+                        ? output.actual
+                        : "";
+                const errorPage =
+                  ["browser_snapshot", "browser_get_text"].includes(toolName) &&
+                  looksLikeErrorPage(pageText);
                 const observed = areaForUrl(output.url);
                 if (observed) {
                   observedAreas.add(observed);
-                  const toolName = tr.toolName;
-                  if (["browser_snapshot", "browser_get_text", "test_assert"].includes(toolName)) {
+                  if (["browser_snapshot", "browser_get_text", "test_assert"].includes(toolName) && !errorPage) {
                     verifiedAreas.add(observed);
                   }
+                }
+                // Generic URL matching: any requested area name verifies by
+                // URL on any site ("/user-settings" ↔ "user settings").
+                // Only requested areas are tracked, to avoid polluting coverage.
+                if (!errorPage) {
+                  for (const area of scope.areas) {
+                    if (!urlMatchesArea(output.url, area)) continue;
+                    observedAreas.add(area.toLowerCase());
+                    if (["browser_snapshot", "browser_get_text", "test_assert"].includes(toolName)) {
+                      verifiedAreas.add(area.toLowerCase());
+                    }
+                  }
+                }
+                // Interaction areas (navigation/footer) have no dedicated URL:
+                // detect them from selectors used and snapshot content.
+                // Only requested areas are tracked, to avoid polluting coverage.
+                if (!errorPage) {
+                  const signalExcerpt =
+                    typeof output.elements === "string"
+                      ? output.elements
+                      : typeof output.text === "string"
+                        ? output.text
+                        : typeof output.actual === "string"
+                          ? output.actual
+                          : "";
+                  for (const signal of areaSignalsFor(selector, signalExcerpt)) {
+                    if (!scope.areas.some((a) => a.toLowerCase() === signal)) continue;
+                    observedAreas.add(signal);
+                    if (["browser_snapshot", "browser_get_text", "test_assert"].includes(toolName)) {
+                      verifiedAreas.add(signal);
+                    }
+                  }
+                }
+                // Record evidence for server-side report validation.
+                if (isBrowserAction(toolName)) {
+                  const url = typeof output.url === "string" ? output.url : "";
+                  let excerpt = "";
+                  if (typeof output.elements === "string") excerpt = output.elements.slice(0, 2000);
+                  else if (typeof output.text === "string") excerpt = output.text.slice(0, 2000);
+                  else if (typeof output.actual === "string") excerpt = output.actual.slice(0, 500);
+                  else if (typeof output.title === "string") excerpt = `title: ${output.title}`.slice(0, 300);
+                  if (errorPage && excerpt) excerpt = `[possible error page] ${excerpt}`;
+                  ledger.push({
+                    tool: toolName,
+                    url,
+                    ...(selector ? { selector } : {}),
+                    ...(excerpt ? { excerpt } : {}),
+                    ...(toolName === "test_assert"
+                      ? {
+                          pass: output.pass === true,
+                          assertKind: typeof rawArgs.kind === "string" ? rawArgs.kind : undefined,
+                        }
+                      : {}),
+                  });
+                }
+                // Fix 3: record test execution outcomes for the report's
+                // Verification results section (never silently dropped).
+                if (toolName === "test_run") {
+                  testRuns.push({
+                    ...(typeof rawArgs.file === "string" ? { file: rawArgs.file } : {}),
+                    ...(typeof output.ok === "boolean" ? { ok: output.ok } : {}),
+                    ...(typeof output.passed === "number" ? { passed: output.passed } : {}),
+                    ...(typeof output.failed === "number" ? { failed: output.failed } : {}),
+                    ...(typeof output.error === "string" ? { error: output.error } : {}),
+                  });
                 }
               }
               if (out && typeof out === "object" && "saved" in (out as Record<string, unknown>)) {
@@ -509,7 +615,29 @@ async function handleStream(
             browserBudgetReached = true;
             stopReason = "action_limit";
           }
-          if ((step?.toolCalls?.length ?? 0) === 0) break;
+          if ((step?.toolCalls?.length ?? 0) === 0) {
+            // The model stopped calling tools. If coverage is incomplete, nudge
+            // it back to work (bounded) instead of accepting a near-empty run.
+            const uncovered = scope.areas.filter((a) => !verifiedAreas.has(a.toLowerCase()));
+            if (uncovered.length && !browserBudgetReached && earlyStops < 3) {
+              earlyStops += 1;
+              modelMessages = [
+                ...modelMessages,
+                {
+                  role: "user",
+                  content: `You stopped with these requested areas still unverified: ${uncovered.join(", ")}. Do not summarize yet — continue exploring them with browser tools now (snapshot each area, assert key outcomes with test_assert).`,
+                },
+              ];
+              send("status", {
+                label: lastLabel,
+                thinking: `Coverage incomplete (${uncovered.join(", ")} unverified) — resuming exploration instead of stopping early (nudge ${earlyStops}/3).`,
+                phase: lastPhase,
+                agent: "main",
+              });
+              continue;
+            }
+            break;
+          }
           if (i === maxModelRounds - 1) {
             capped = true;
             stopReason = "model_round_limit";
@@ -520,9 +648,9 @@ async function handleStream(
           await saveExplorationCheckpoint({
             runId,
             ...scope,
-            completedAreas: [...new Set([...completedAreas, currentArea])],
+            completedAreas,
             currentArea,
-            nextArea,
+            nextArea: scope.areas.find((area) => !completedAreas.includes(area)) ?? "",
             lastAction: "completed",
           });
         }
@@ -530,6 +658,80 @@ async function handleStream(
         const finalBrowserActions = browserActionsExecuted;
         const coveredAreas = scope.areas.filter((area) => verifiedAreas.has(area.toLowerCase()));
         const visitedAreas = scope.areas.filter((area) => observedAreas.has(area.toLowerCase()));
+        const coverageStatus = coveredAreas.length === scope.areas.length && scope.areas.length > 0 ? "COMPLETE" : "PARTIAL";
+        const coverage = {
+          requestedAreas: scope.areas,
+          visitedAreas,
+          coveredAreas,
+        };
+        // STRUCTURED REPORT: the model returns DATA ONLY (JSON). Status,
+        // locator filtering, banned-claim stripping, and Markdown rendering
+        // all happen server-side. Model status is never trusted.
+        // NOTE: compact context on purpose — full modelMessages carries every
+        // snapshot verbatim and makes this call slow/flaky on some gateways.
+        // Two tiers: generateObject (json_schema) first, then plain-text JSON
+        // with strict server-side parse for gateways lacking schema support.
+        let finalReport: string;
+        {
+          const ledgerSummary = ledger
+            .slice(-60)
+            .map((e) => `- ${e.tool} ${e.url}${e.selector ? ` [${e.selector}]` : ""}${e.pass !== undefined ? (e.pass ? " PASS" : " FAIL") : ""}${e.excerpt ? `: ${e.excerpt.slice(0, 200)}` : ""}`)
+            .join("\n");
+          const testRunSummary = testRuns
+            .map((r) => `- test run (${r.file || "all"}): ${r.error ? `ERROR ${r.error.slice(0, 160)}` : `${r.passed ?? 0} passed, ${r.failed ?? 0} failed`}`)
+            .join("\n");
+          const scribeRules =
+            "You are a QA scribe. Return exploration findings as JSON data only. " +
+            "Rules: every feature MUST carry a quote copied verbatim from the browser evidence (a feature without a matching quote is dropped); list only locators appearing verbatim in the evidence; " +
+            "never claim CAPTCHA/rate-limit/bot-check/auth-wall absence, full testability, or universal accessibility unless a passing assertion proves it; " +
+            "do NOT decide Verified/Visited/Planned — the server assigns status. Omit anything unobserved instead of inventing it.";
+          const scribeRequest = `Summarize this exploration as JSON.\nRequested areas: ${scope.areas.join(", ") || "none"}.\nServer-verified areas (do not relabel): ${coveredAreas.join(", ") || "none"}. Visited only: ${visitedAreas.filter((a) => !coveredAreas.includes(a)).join(", ") || "none"}.\nTest executions:\n${testRunSummary || "(no test runs)"}\nLast agent notes:\n${fullText.slice(-4000) || "(none)"}\nBrowser evidence ledger:\n${ledgerSummary || "(no browser evidence)"}\nReturn summary, per-area features+evidence+gaps, observed locators, and gaps. Quote evidence verbatim from the ledger excerpts; the server drops anything else.`;
+          const JSON_SHAPE =
+            `Return ONLY a JSON object (no markdown fences) with exactly this shape: ` +
+            `{"summary": string, "areas": [{"area": string, "features": [{"text": string, "quote": string}], "evidence": [string], "gaps": string}], ` +
+            `"locators": [{"element": string, "locator": string, "type": string}], "gaps": [string]}`;
+          const extractJson = (text: string): unknown => {
+            const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? text;
+            const start = fenced.indexOf("{");
+            const end = fenced.lastIndexOf("}");
+            if (start < 0 || end <= start) throw new Error("no JSON object in scribe reply");
+            return JSON.parse(fenced.slice(start, end + 1));
+          };
+          let object: z.infer<typeof ReportDataSchema> | null = null;
+          let structuredError: unknown = null;
+          try {
+            const res = await generateObject({
+              model: llm,
+              schema: ReportDataSchema,
+              system: scribeRules,
+              messages: [{ role: "user", content: scribeRequest }],
+              abortSignal: AbortSignal.any([req.signal, AbortSignal.timeout(180_000)]),
+            });
+            object = res.object;
+          } catch (e) {
+            structuredError = e;
+            try {
+              const res2 = await generateText({
+                model: llm,
+                system: `${scribeRules} ${JSON_SHAPE}`,
+                messages: [{ role: "user", content: scribeRequest }],
+                abortSignal: AbortSignal.any([req.signal, AbortSignal.timeout(120_000)]),
+              });
+              const parsed = ReportDataSchema.safeParse(extractJson(res2.text));
+              if (parsed.success) object = parsed.data;
+              else structuredError = parsed.error;
+            } catch (e2) {
+              structuredError = e2;
+            }
+          }
+          if (object) {
+            finalReport = renderReportMarkdown(object, coverage, ledger, testRuns);
+          } else {
+            // No hallucinated fallback: coverage + ledger only.
+            console.error(`run ${runId} structured report failed, using fallback:`, structuredError instanceof Error ? structuredError.message : structuredError);
+            finalReport = renderFallbackReport(coverage, finalBrowserActions, ledger, testRuns);
+          }
+        }
         const capMessage = stopReason === "model_timeout"
           ? "\n\n---\nRun stopped: the model timed out three times before reliable exploration completed. Retry this request or split it into a smaller area."
           : stopReason === "action_limit"
@@ -537,10 +739,10 @@ async function handleStream(
             : stopReason === "model_round_limit"
               ? `\n\n---\nStopped after ${maxModelRounds} model rounds with ${finalBrowserActions} browser actions. Ask me to continue from where it left off.`
               : "";
-        const runFacts = `\n\n---\nRun facts (server-verified): ${finalBrowserActions} browser actions executed. Verified areas: ${coveredAreas.length ? coveredAreas.join(", ") : "none"}.${visitedAreas.filter((area) => !coveredAreas.includes(area)).length ? ` Visited only: ${visitedAreas.filter((area) => !coveredAreas.includes(area)).join(", ")}.` : ""}${scope.areas.filter((area) => !coveredAreas.includes(area)).length ? ` Next requested area: ${scope.areas.find((area) => !coveredAreas.includes(area))}.` : " All requested areas verified."}`;
+        const runFacts = `\n\n---\nAUTHORITATIVE EXPLORATION STATUS: ${coverageStatus}. Run facts (server-verified): ${finalBrowserActions} browser actions executed. Verified areas: ${coveredAreas.length ? coveredAreas.join(", ") : "none"}.${visitedAreas.filter((area) => !coveredAreas.includes(area)).length ? ` Visited only: ${visitedAreas.filter((area) => !coveredAreas.includes(area)).join(", ")}.` : ""}${scope.areas.filter((area) => !coveredAreas.includes(area)).length ? ` Next requested area: ${scope.areas.find((area) => !coveredAreas.includes(area))}.` : " All requested areas verified."}`;
         send("done", {
           text:
-            fullText.trim() + capMessage + runFacts ||
+            `${runFacts}\n\n${finalReport}${capMessage}` ||
             (capped
               ? "Agent reached the step limit before finishing the summary. Continue from the last exploration or split the request into smaller areas."
               : "Tools finished, but the model did not send a summary."),
