@@ -19,8 +19,6 @@ import { createApproval, isAlwaysAllowed, rejectRunApprovals } from "@/lib/appro
 import { loadInstalledSkillsSync } from "@/lib/skills";
 import { assertPublicTarget } from "@/lib/ssrf";
 import { flushLogs } from "@/lib/tool-logs";
-import { guardApi } from "@/lib/api-guard";
-import { leave, tryEnter } from "@/lib/rate-limit";
 import { parseExplorationScope, readExplorationCheckpoint, saveExplorationCheckpoint } from "@/lib/exploration";
 import {
   ReportDataSchema,
@@ -103,10 +101,8 @@ const StreamBodySchema = z.object({
 //   done   { text, toolCalls, screenshots, usage, model, provider }
 //   error  { error }
 export async function POST(req: NextRequest) {
-  const blocked = guardApi(req, { scope: "chat-stream", limit: 30 });
-  if (blocked) return blocked;
-  // Validate BEFORE acquiring a concurrency slot — every return below must
-  // not leak the slot. The slot is taken only when a stream will start.
+  // No rate limiting on this route (removed per owner request): no guardApi
+  // quota, no concurrency slots. Every validated request starts a stream.
   let rawBody: unknown;
   try {
     rawBody = await req.json();
@@ -130,15 +126,6 @@ export async function POST(req: NextRequest) {
       );
     }
   }
-  if (!tryEnter("chat-stream", 3)) {
-    return Response.json(
-      { error: "too many concurrent runs — try again shortly" },
-      { status: 429 }
-    );
-  }
-  // NOTE: the slot is released in the stream's finally block below, not here —
-  // handleStream returns the Response immediately while the run continues.
-  // The body was already validated above, so this path cannot exit early.
   return handleStream(req, pre.data);
 }
 
@@ -786,7 +773,6 @@ async function handleStream(
         clearInterval(heartbeat);
         rejectRunApprovals(runId);
         endRun(runId);
-        leave("chat-stream");
         await browser.closeSession(runId).catch(() => null);
         await flushLogs().catch(() => null);
         safeClose();
