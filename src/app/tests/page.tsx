@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Copy, FileText, FileUp, FlaskConical, Play, RotateCw, Trash2, XCircle } from "lucide-react";
 import { rowsToCases, suggestFileName, type ImportedCase } from "@/lib/case-import";
+import Stagger from "@/components/chat/Stagger";
 
 type SpecInfo = { file: string; kb: number; updatedAt: number };
 type SpecResult = { title: string; file: string; status: string; durationMs: number; error: string };
@@ -344,10 +345,12 @@ export default function TestsPage() {
         </div>
 
         {imported && (
-          <div className="animate-fade-up mt-6 rounded-2xl border border-emerald-300/25 bg-emerald-300/5 p-4">
-            <p className="text-sm font-semibold text-white">
-              {imported.length} case(s) parsed — review, name the file, save.
-            </p>
+          <div className="mt-6 rounded-2xl border border-emerald-300/25 bg-emerald-300/5 p-4">
+            <Stagger>
+              <p className="text-sm font-semibold text-white">
+                {imported.length} case(s) parsed — review, name the file, save.
+              </p>
+            </Stagger>
             <div className="mt-1 max-h-40 overflow-auto rounded-xl bg-black/40 p-3 text-[11px] text-zinc-400">
               {imported.slice(0, 10).map((c) => (
                 <p key={c.id} className="truncate">{c.id} — {c.title} ({c.steps.length} steps)</p>

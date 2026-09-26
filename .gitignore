@@ -11,9 +11,11 @@
 !.yarn/versions
 
 # testing
+/tests/
 /coverage
 /test-results/
 /playwright-report/
+/blob-report/
 /playwright/.auth/
 
 # runtime state (generated, never commit)

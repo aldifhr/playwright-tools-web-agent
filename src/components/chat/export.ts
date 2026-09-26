@@ -1,5 +1,6 @@
 // Export helpers for assistant messages: Markdown tables -> XLSX sheets,
-// message -> printable HTML (user picks PDF in the print dialog).
+// message -> Markdown file, message -> printable HTML (user picks PDF in the
+// print dialog).
 
 export type ParsedTable = { headers: string[]; rows: string[][] };
 
@@ -117,6 +118,18 @@ export async function downloadXlsx(baseName: string, tables: ParsedTable[]) {
     XLSX.utils.book_append_sheet(wb, ws, `Table ${i + 1}`);
   });
   XLSX.writeFile(wb, `${baseName}.xlsx`);
+}
+
+export function downloadMarkdown(baseName: string, content: string) {
+  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${baseName}.md`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 export function printMessage(title: string, htmlBody: string) {

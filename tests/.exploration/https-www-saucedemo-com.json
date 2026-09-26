@@ -1,20 +1,21 @@
 {
-  "runId": "06cbe0dfb6344287b923c749857dd949",
+  "runId": "3040a177a2a9411c94b479fde2531cca",
   "site": "https://www.saucedemo.com",
   "areas": [
     "login",
     "products",
     "cart",
-    "checkout"
+    "checkout",
+    "navigation",
+    "dynamic catalog",
+    "footer"
   ],
-  "priority": "critical",
-  "maxActions": 8,
+  "priority": "medium",
+  "maxActions": null,
   "continue": false,
-  "completedAreas": [
-    "login"
-  ],
+  "completedAreas": [],
   "currentArea": "login",
   "nextArea": "products",
-  "lastAction": "completed",
-  "updatedAt": 1790183000008
+  "lastAction": "browser_screenshot",
+  "updatedAt": 1790315384584
 }

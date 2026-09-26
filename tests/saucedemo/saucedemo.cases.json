@@ -3,116 +3,109 @@
     "id": "TC-001",
     "area": "Login",
     "type": "Positive",
-    "title": "Login dengan kredensial valid",
-    "preconditions": "User di halaman login",
-    "testData": "username=standard_user, password=secret_sauce",
+    "title": "Valid Login",
+    "preconditions": "On saucedemo login page",
+    "testData": "standard_user / secret_sauce",
     "steps": [
-      "Buka https://www.saucedemo.com",
-      "Isi username: standard_user",
-      "Isi password: secret_sauce",
-      "Klik tombol Login"
+      "Fill #user-name with standard_user",
+      "Fill #password with secret_sauce",
+      "Click #login-button"
     ],
-    "expected": "Redirect ke /inventory.html, produk ditampilkan",
+    "expected": "User redirected to inventory.html",
     "priority": "High",
     "severity": "High"
   },
   {
     "id": "TC-002",
-    "area": "Login",
-    "type": "Negative",
-    "title": "Login dengan username salah",
-    "preconditions": "User di halaman login",
-    "testData": "username=invalid_user, password=secret_sauce",
+    "area": "Products",
+    "type": "Positive",
+    "title": "Catalog & Add to Cart",
+    "preconditions": "Logged in as standard_user",
+    "testData": "Sauce Labs Backpack",
     "steps": [
-      "Buka https://www.saucedemo.com",
-      "Isi username: invalid_user",
-      "Isi password: secret_sauce",
-      "Klik tombol Login"
+      "Verify .inventory_item count is 6",
+      "Click #add-to-cart-sauce-labs-backpack",
+      "Verify .shopping_cart_badge has 1"
     ],
-    "expected": "Error message: 'Epic sadface: Username and password do not match any user in this service'",
+    "expected": "6 products displayed and backpack added to cart",
     "priority": "High",
     "severity": "High"
   },
   {
     "id": "TC-003",
-    "area": "Login",
-    "type": "Negative",
-    "title": "Login dengan password salah",
-    "preconditions": "User di halaman login",
-    "testData": "username=standard_user, password=wrongpass",
+    "area": "Cart",
+    "type": "Positive",
+    "title": "View Cart",
+    "preconditions": "Backpack in cart",
+    "testData": "Sauce Labs Backpack",
     "steps": [
-      "Buka https://www.saucedemo.com",
-      "Isi username: standard_user",
-      "Isi password: wrongpass",
-      "Klik tombol Login"
+      "Click .shopping_cart_link",
+      "Verify item name visible in cart"
     ],
-    "expected": "Error message: 'Epic sadface: Username and password do not match any user in this service'",
+    "expected": "Cart contains added item",
     "priority": "High",
     "severity": "High"
   },
   {
     "id": "TC-004",
-    "area": "Login",
-    "type": "Negative",
-    "title": "Login dengan username kosong",
-    "preconditions": "User di halaman login",
-    "testData": "username=(kosong), password=secret_sauce",
+    "area": "Checkout",
+    "type": "Positive",
+    "title": "Complete Checkout Flow",
+    "preconditions": "On cart page with items",
+    "testData": "John Doe 12345",
     "steps": [
-      "Buka https://www.saucedemo.com",
-      "Isi password: secret_sauce",
-      "Klik tombol Login"
+      "Click #checkout",
+      "Fill #first-name, #last-name, #postal-code",
+      "Click #continue",
+      "Click #finish"
     ],
-    "expected": "Error message: 'Epic sadface: Username is required'",
+    "expected": "Order completed successfully",
     "priority": "High",
-    "severity": "Medium"
+    "severity": "High"
   },
   {
     "id": "TC-005",
-    "area": "Login",
-    "type": "Negative",
-    "title": "Login dengan password kosong",
-    "preconditions": "User di halaman login",
-    "testData": "username=standard_user, password=(kosong)",
+    "area": "Navigation",
+    "type": "Positive",
+    "title": "Sidebar Navigation",
+    "preconditions": "Logged in",
+    "testData": "N/A",
     "steps": [
-      "Buka https://www.saucedemo.com",
-      "Isi username: standard_user",
-      "Klik tombol Login"
+      "Click #react-burger-menu-btn",
+      "Verify sidebar links visible"
     ],
-    "expected": "Error message: 'Epic sadface: Password is required'",
-    "priority": "High",
-    "severity": "Medium"
-  },
-  {
-    "id": "TC-006",
-    "area": "Login",
-    "type": "Negative",
-    "title": "Login dengan semua field kosong",
-    "preconditions": "User di halaman login",
-    "testData": "username=(kosong), password=(kosong)",
-    "steps": [
-      "Buka https://www.saucedemo.com",
-      "Klik tombol Login tanpa isi apapun"
-    ],
-    "expected": "Error message: 'Epic sadface: Username is required'",
+    "expected": "Sidebar opens and displays links",
     "priority": "Medium",
     "severity": "Medium"
   },
   {
-    "id": "TC-007",
-    "area": "Login",
-    "type": "Negative",
-    "title": "Login dengan locked_out_user",
-    "preconditions": "User di halaman login",
-    "testData": "username=locked_out_user, password=secret_sauce",
+    "id": "TC-006",
+    "area": "Dynamic Catalog",
+    "type": "Positive",
+    "title": "Dynamic Catalog Link Check",
+    "preconditions": "Sidebar open",
+    "testData": "N/A",
     "steps": [
-      "Buka https://www.saucedemo.com",
-      "Isi username: locked_out_user",
-      "Isi password: secret_sauce",
-      "Klik tombol Login"
+      "Locate #dynamic_catalog_sidebar_link in menu"
     ],
-    "expected": "Error message: 'Epic sadface: Sorry, this user has been locked out.'",
-    "priority": "High",
-    "severity": "High"
+    "expected": "Dynamic catalog sidebar option is present",
+    "priority": "Low",
+    "severity": "Low"
+  },
+  {
+    "id": "TC-007",
+    "area": "Footer",
+    "type": "Positive",
+    "title": "Footer Visibility",
+    "preconditions": "On inventory page",
+    "testData": "N/A",
+    "steps": [
+      "Scroll to bottom",
+      "Verify footer.footer visible"
+    ],
+    "expected": "Footer with social links visible",
+    "priority": "Low",
+    "severity": "Low"
   },
   {
     "id": "TC-008",

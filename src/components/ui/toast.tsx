@@ -4,13 +4,14 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, CircleAlert, Info, X } from "lucide-react";
+import { cssMs } from "@/lib/css-duration";
 import { cn } from "@/lib/utils";
 
 export type ToastVariant = "success" | "error" | "info";
@@ -122,6 +123,69 @@ export function useToast() {
   return ctx;
 }
 
+function ToastCard({
+  toast,
+  onDismiss,
+}: {
+  toast: ToastItem;
+  onDismiss: (id: number) => void;
+}) {
+  const t = toast;
+  const meta = VARIANT_STYLE[t.variant];
+  const Icon = meta.icon;
+  const ref = useRef<HTMLDivElement>(null);
+
+  // transitions-dev 22-toast: pure CSS. Mount without .is-open, rAF adds it
+  // (slow open clock); dismiss swaps it off and the parent removes us after
+  // the fast close clock (--toast-close).
+  useEffect(() => {
+    const raf = requestAnimationFrame(() =>
+      requestAnimationFrame(() => ref.current?.classList.add("is-open"))
+    );
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      data-toast-id={t.id}
+      className={cn(
+        "t-toast pointer-events-auto relative flex items-start gap-3 overflow-hidden rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur-xl",
+        t.variant === "error"
+          ? "border-white/25 bg-zinc-950/95"
+          : "border-white/10 bg-zinc-950/90"
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-0 left-0 h-full w-1",
+          meta.bar
+        )}
+      />
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white/10">
+        <Icon size={16} className={meta.iconClass} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] leading-snug font-semibold text-white">
+          {t.title}
+        </p>
+        {t.description && (
+          <p className="mt-0.5 line-clamp-3 text-xs leading-relaxed text-zinc-400">
+            {t.description}
+          </p>
+        )}
+      </div>
+      <button
+        onClick={() => onDismiss(t.id)}
+        aria-label="Tutup notifikasi"
+        className="shrink-0 rounded-lg p-1 text-zinc-500 transition hover:bg-white/10 hover:text-white"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
 function Toaster({
   toasts,
   onDismiss,
@@ -129,60 +193,43 @@ function Toaster({
   toasts: ToastItem[];
   onDismiss: (id: number) => void;
 }) {
+  const [leaving, setLeaving] = useState<ReadonlySet<number>>(new Set());
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+
+  useEffect(() => {
+    const timersMap = timers.current;
+    return () => {
+      for (const timer of timersMap.values()) clearTimeout(timer);
+    };
+  }, []);
+
+  function handleDismiss(id: number) {
+    if (leaving.has(id)) return;
+    setLeaving((prev) => new Set(prev).add(id));
+    document
+      .querySelector(`[data-toast-id="${id}"]`)
+      ?.classList.remove("is-open");
+    const closeMs = cssMs("--toast-close", 250);
+    const timer = setTimeout(() => {
+      timers.current.delete(id);
+      setLeaving((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      onDismiss(id);
+    }, closeMs);
+    timers.current.set(id, timer);
+  }
+
   return (
     <div
       aria-live="polite"
       className="pointer-events-none fixed right-4 bottom-4 z-[100] flex w-[calc(100vw-2rem)] max-w-sm flex-col gap-2"
     >
-      <AnimatePresence>
-        {toasts.map((t) => {
-          const meta = VARIANT_STYLE[t.variant];
-          const Icon = meta.icon;
-          return (
-            <motion.div
-              key={t.id}
-              layout
-              initial={{ opacity: 0, y: 16, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 8, scale: 0.96 }}
-              transition={{ type: "spring", stiffness: 400, damping: 30 }}
-              className={cn(
-                "pointer-events-auto relative flex items-start gap-3 overflow-hidden rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur-xl",
-                t.variant === "error"
-                  ? "border-white/25 bg-zinc-950/95"
-                  : "border-white/10 bg-zinc-950/90"
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute top-0 left-0 h-full w-1",
-                  meta.bar
-                )}
-              />
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white/10">
-                <Icon size={16} className={meta.iconClass} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] leading-snug font-semibold text-white">
-                  {t.title}
-                </p>
-                {t.description && (
-                  <p className="mt-0.5 line-clamp-3 text-xs leading-relaxed text-zinc-400">
-                    {t.description}
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={() => onDismiss(t.id)}
-                aria-label="Tutup notifikasi"
-                className="shrink-0 rounded-lg p-1 text-zinc-500 transition hover:bg-white/10 hover:text-white"
-              >
-                <X size={14} />
-              </button>
-            </motion.div>
-          );
-        })}
-      </AnimatePresence>
+      {toasts.map((t) => (
+        <ToastCard key={t.id} toast={t} onDismiss={handleDismiss} />
+      ))}
     </div>
   );
 }

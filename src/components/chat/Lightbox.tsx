@@ -2,6 +2,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import Stagger from "@/components/chat/Stagger";
 import type { LightboxState } from "@/components/chat/types";
 
 type LightboxProps = {
@@ -43,11 +44,13 @@ export default function Lightbox({ lightbox, onClose, onStep }: LightboxProps) {
             </button>
           </div>
         </div>
-        <img
-          src={lightbox.list[lightbox.i]?.image}
-          alt="full"
-          className="animate-fade-up max-h-[80vh] w-full rounded-2xl border border-white/15 object-contain shadow-2xl"
-        />
+        <Stagger key={lightbox.i}>
+          <img
+            src={lightbox.list[lightbox.i]?.image}
+            alt="full"
+            className="max-h-[80vh] w-full rounded-2xl border border-white/15 object-contain shadow-2xl"
+          />
+        </Stagger>
       </div>
     </div>
   );

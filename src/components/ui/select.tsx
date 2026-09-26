@@ -50,18 +50,36 @@ function SelectContent({
   position = "popper",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+  // transitions-dev 05-menu-dropdown: my wrapper stays mounted (Radix mounts
+  // the Content DOM on open), so a callback ref — not a mount effect — adds
+  // .is-open for the origin-aware grow. (Radix unmounts on close, so the
+  // close clock can't play — open animation only.)
+  const openRaf = React.useRef(0);
+  const setContentRef = React.useCallback((node: HTMLDivElement | null) => {
+    cancelAnimationFrame(openRaf.current);
+    if (!node) return;
+    openRaf.current = requestAnimationFrame(() =>
+      requestAnimationFrame(() => node.classList.add("is-open"))
+    );
+  }, []);
+  React.useEffect(() => () => cancelAnimationFrame(openRaf.current), []);
+
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
         data-slot="select-content"
+        data-origin="top-center"
         className={cn(
-          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border shadow-md",
+          "t-dropdown bg-popover text-popover-foreground relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] overflow-x-hidden overflow-y-auto rounded-md border shadow-md",
           position === "popper" &&
             "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
           className
         )}
         position={position}
         {...props}
+        // NOTE: ref must come AFTER {...props} — in React 19 ref arrives as
+        // a prop, so spreading props first would clobber an earlier ref.
+        ref={setContentRef}
       >
         <SelectScrollUpButton />
         <SelectPrimitive.Viewport

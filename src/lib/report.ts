@@ -162,14 +162,33 @@ export function areaSignalsFor(selector: string | undefined, excerpt: string | u
   return out;
 }
 
-/** Server-built evidence lines for one area, straight from the ledger. */
-export function evidenceForArea(area: string, ledger: EvidenceEntry[]): string {
+/** All ledger entries attributable to one area: URL match (generic, so any
+ *  area name works on any site) or interaction signals (URL-less areas like
+ *  navigation/footer, and URL-less outputs like test_assert). */
+export function ledgerEntriesFor(area: string, ledger: EvidenceEntry[]): EvidenceEntry[] {
   const key = norm(area);
-  // NOTE: no URL requirement — test_assert outputs carry no URL, yet their
-  // selector/excerpt (e.g. a social-link assert) is valid area evidence.
-  const entries = ledger.filter(
+  return ledger.filter(
     (e) => urlMatchesArea(e.url, area) || areaSignalsFor(e.selector, e.excerpt).includes(key)
   );
+}
+
+const VERIFY_TOOLS = new Set(["browser_snapshot", "browser_get_text", "test_assert"]);
+
+/** Ledger-direct status for areas outside the requested scope (extras): a
+ *  verify-tool entry mapped to the area means Verified — this is how a
+ *  generically-scoped run ("primary flow") still credits real evidence. */
+export function ledgerStatus(area: string, ledger: EvidenceEntry[]): ReportStatus {
+  const entries = ledgerEntriesFor(area, ledger).filter(
+    (e) => !(e.excerpt ?? "").startsWith("[possible error page]")
+  );
+  if (entries.some((e) => VERIFY_TOOLS.has(e.tool))) return "Verified";
+  if (entries.length) return "Visited only";
+  return "Planned/Unverified";
+}
+
+/** Server-built evidence lines for one area, straight from the ledger. */
+export function evidenceForArea(area: string, ledger: EvidenceEntry[]): string {
+  const entries = ledgerEntriesFor(area, ledger);
   if (!entries.length) return "";
   return entries
     .slice(0, 6)
@@ -328,6 +347,23 @@ function selectorObserved(locator: string, ledger: EvidenceEntry[]): boolean {
 // Template placeholders such as {id}, {name}, <id> are never real evidence.
 const TEMPLATE_PATTERN = /[{<][a-z_]*id[a-z_]*[}>]|\{name\}|\{slug\}/i;
 
+/** Selectors successfully used this run, as locator rows. Every ledger entry
+ *  is a successful tool execution, so these carry the evidence guarantee
+ *  without any model invention. Shared by the structured and fallback paths
+ *  so the locator table can never be emptier than what tools actually did. */
+export function synthesizedLocators(ledger: EvidenceEntry[]): z.infer<typeof ReportLocatorSchema>[] {
+  const seen = new Set<string>();
+  const out: z.infer<typeof ReportLocatorSchema>[] = [];
+  for (const entry of ledger) {
+    const sel = (entry.selector ?? "").trim();
+    if (!sel || seen.has(sel) || sel.includes("→")) continue;
+    seen.add(sel);
+    if (out.length >= 20) break;
+    out.push({ element: sel, locator: sel, type: "observed selector" });
+  }
+  return out;
+}
+
 export function filterLocators(
   locators: z.infer<typeof ReportLocatorSchema>[],
   ledger: EvidenceEntry[]
@@ -397,8 +433,11 @@ export function renderReportMarkdown(
     .map((e) => `${e.excerpt ?? ""} ${e.selector ?? ""} ${e.url ?? ""} ${e.assertKind ?? ""}`)
     .join("\n")
     .toLowerCase();
-  const rowNotes = (area: string, found: z.infer<typeof ReportAreaSchema> | undefined): { status: ReportStatus; features: string; notes: string } => {
-    const status = resolveStatus(area, coverage);
+  const rowNotes = (area: string, found: z.infer<typeof ReportAreaSchema> | undefined, requested: boolean): { status: ReportStatus; features: string; notes: string } => {
+    // Requested areas: coverage is authoritative. Extras (areas the model
+    // reported beyond the request): judged directly from ledger evidence, so
+    // a generically-scoped run still credits real per-area evidence.
+    const status = requested ? resolveStatus(area, coverage) : ledgerStatus(area, ledger);
     const features = found ? keptFeatures(found.features, ledger, ledgerText) : [];
     const llmEvidence = found
       ? sanitizeList(found.evidence, ledger).filter((e) => evidenceSupported(e, ledger))
@@ -416,17 +455,25 @@ export function renderReportMarkdown(
   for (const requested of coverage.requestedAreas) {
     const found = byArea.get(norm(requested));
     byArea.delete(norm(requested));
-    const row = rowNotes(requested, found);
+    const row = rowNotes(requested, found, true);
     lines.push(`| ${esc(requested)} | ${row.status} | ${esc(row.features)} | ${esc(row.notes)} |`);
   }
-  // Extra areas the model reported beyond the request (kept, status resolved).
+  // Extra areas the model reported beyond the request (kept, status resolved
+  // from ledger evidence so they can still show Verified).
   for (const extra of byArea.values()) {
-    const row = rowNotes(extra.area, extra);
+    const row = rowNotes(extra.area, extra, false);
     lines.push(`| ${esc(extra.area)} | ${row.status} | ${esc(row.features)} | ${esc(row.notes)} |`);
   }
   lines.push("");
 
-  const { kept, dropped } = filterLocators(data.locators, ledger);
+  // Union: model-proposed locators plus every successfully-used selector from
+  // the ledger (LLM labels win on duplicates). The table then always reflects
+  // at least what the tools actually did — never emptier than the evidence.
+  const mergedLocators = [...data.locators];
+  for (const s of synthesizedLocators(ledger)) {
+    if (!mergedLocators.some((m) => m.locator.trim() === s.locator)) mergedLocators.push(s);
+  }
+  const { kept, dropped } = filterLocators(mergedLocators, ledger);
   lines.push("### Key locators (observed this run only)");
   if (kept.length) {
     lines.push("");
@@ -482,20 +529,11 @@ export function renderFallbackReport(
   ledger: EvidenceEntry[] = [],
   testRuns: TestRunSummary[] = []
 ): string {
-  const seen = new Set<string>();
-  const locators: z.infer<typeof ReportLocatorSchema>[] = [];
-  for (const entry of ledger) {
-    const sel = (entry.selector ?? "").trim();
-    if (!sel || seen.has(sel) || sel.includes("→")) continue;
-    seen.add(sel);
-    if (locators.length >= 20) break;
-    locators.push({ element: sel, locator: sel, type: "observed selector" });
-  }
   return renderReportMarkdown(
     {
       summary: `Server-rendered fallback (${browserActions} browser actions). Structured summary unavailable; only server-verified coverage is shown.`,
       areas: [],
-      locators,
+      locators: synthesizedLocators(ledger),
       gaps: [],
     },
     coverage,

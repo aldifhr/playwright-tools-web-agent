@@ -19,7 +19,7 @@ import { createApproval, isAlwaysAllowed, rejectRunApprovals } from "@/lib/appro
 import { loadInstalledSkillsSync } from "@/lib/skills";
 import { assertPublicTarget } from "@/lib/ssrf";
 import { flushLogs } from "@/lib/tool-logs";
-import { parseExplorationScope, readExplorationCheckpoint, saveExplorationCheckpoint } from "@/lib/exploration";
+import { parseExplorationScope, readExplorationCheckpoint, readLatestCheckpoint, saveExplorationCheckpoint } from "@/lib/exploration";
 import {
   ReportDataSchema,
   areaForUrl,
@@ -152,8 +152,23 @@ async function handleStream(
   // step rereads MEMORY.md and every approved skill unnecessarily.
   const systemPrompt = getSystemPrompt({ provider, model: chosenModel, baseUrl });
   const latestUserPrompt = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
-  const scope = parseExplorationScope(latestUserPrompt);
-  const previousCheckpoint = scope.continue ? await readExplorationCheckpoint(scope.site) : null;
+  let scope = parseExplorationScope(latestUserPrompt);
+  // A bare "continue" carries no URL, so scope.site is the "current site"
+  // placeholder whose checkpoint (if any) is useless. Fall back to the newest
+  // real-site checkpoint so resumption keeps its completed areas; warn loudly
+  // when nothing is found instead of silently resetting the scope.
+  let previousCheckpoint = scope.continue ? await readExplorationCheckpoint(scope.site) : null;
+  let scopeWarning = "";
+  if (scope.continue && !previousCheckpoint && scope.site === "current site") {
+    previousCheckpoint = await readLatestCheckpoint();
+    if (!previousCheckpoint) {
+      scopeWarning = "No prior checkpoint found — starting a fresh scope. Name the site URL or areas to continue precisely.";
+    } else if (previousCheckpoint.areas?.length) {
+      // Adopt the checkpoint's scope: a bare "continue" means "resume that
+      // run", so its requested areas (not ["primary flow"]) define coverage.
+      scope = { ...scope, site: previousCheckpoint.site, areas: [...previousCheckpoint.areas] };
+    }
+  }
   let completedAreas = previousCheckpoint?.completedAreas ?? [];
   const currentArea = scope.areas.find((area) => !completedAreas.includes(area)) ?? scope.areas[0];
   const nextArea = scope.areas.find((area) => area !== currentArea && !completedAreas.includes(area)) ?? "";
@@ -658,6 +673,14 @@ async function handleStream(
         // snapshot verbatim and makes this call slow/flaky on some gateways.
         // Two tiers: generateObject (json_schema) first, then plain-text JSON
         // with strict server-side parse for gateways lacking schema support.
+        // The structured summary can take 10–60s: announce the Reporting
+        // phase so the client progress bar leaves Testing behind.
+        send("status", {
+          label: "Compiling final report…",
+          thinking: "Browser actions are complete; validating evidence and rendering the server-verified report.",
+          phase: "Reporting",
+          agent: "main",
+        });
         let finalReport: string;
         {
           const ledgerSummary = ledger
@@ -726,7 +749,7 @@ async function handleStream(
             : stopReason === "model_round_limit"
               ? `\n\n---\nStopped after ${maxModelRounds} model rounds with ${finalBrowserActions} browser actions. Ask me to continue from where it left off.`
               : "";
-        const runFacts = `\n\n---\nAUTHORITATIVE EXPLORATION STATUS: ${coverageStatus}. Run facts (server-verified): ${finalBrowserActions} browser actions executed. Verified areas: ${coveredAreas.length ? coveredAreas.join(", ") : "none"}.${visitedAreas.filter((area) => !coveredAreas.includes(area)).length ? ` Visited only: ${visitedAreas.filter((area) => !coveredAreas.includes(area)).join(", ")}.` : ""}${scope.areas.filter((area) => !coveredAreas.includes(area)).length ? ` Next requested area: ${scope.areas.find((area) => !coveredAreas.includes(area))}.` : " All requested areas verified."}`;
+        const runFacts = `\n\n---\nAUTHORITATIVE EXPLORATION STATUS: ${coverageStatus}. Run facts (server-verified): ${finalBrowserActions} browser actions executed. Verified areas: ${coveredAreas.length ? coveredAreas.join(", ") : "none"}.${visitedAreas.filter((area) => !coveredAreas.includes(area)).length ? ` Visited only: ${visitedAreas.filter((area) => !coveredAreas.includes(area)).join(", ")}.` : ""}${scope.areas.filter((area) => !coveredAreas.includes(area)).length ? ` Next requested area: ${scope.areas.find((area) => !coveredAreas.includes(area))}.` : " All requested areas verified."}${scopeWarning ? ` Warning: ${scopeWarning}` : ""}`;
         send("done", {
           text:
             `${runFacts}\n\n${finalReport}${capMessage}` ||
@@ -753,6 +776,13 @@ async function handleStream(
           model: chosenModel,
           provider,
           capped,
+          // Fix D: persist the evidence ledger + test outcomes in done.data so
+          // any report can be re-audited post-hoc (excerpts trimmed for size).
+          ledger: ledger.map((e) => ({
+            ...e,
+            excerpt: e.excerpt ? e.excerpt.slice(0, 500) : undefined,
+          })),
+          testRuns,
         });
       } catch (e) {
         if (

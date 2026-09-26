@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // anydoc ships a native (napi) binary — never bundle it, load at runtime.
+  serverExternalPackages: ["@firecrawl/anydoc"],
 };
 
 export default nextConfig;

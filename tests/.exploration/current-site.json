@@ -1,17 +1,15 @@
 {
-  "runId": "0c09ece3741d416393b31ff77931e297",
+  "runId": "1155d815df794c7c9a91aa2eeb9dae3c",
   "site": "current site",
   "areas": [
     "primary flow"
   ],
   "priority": "medium",
   "maxActions": null,
-  "continue": false,
-  "completedAreas": [
-    "primary flow"
-  ],
+  "continue": true,
+  "completedAreas": [],
   "currentArea": "primary flow",
-  "nextArea": "",
+  "nextArea": "primary flow",
   "lastAction": "completed",
-  "updatedAt": 1790183180101
+  "updatedAt": 1790409327672
 }

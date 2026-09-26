@@ -1,5 +1,9 @@
 @import "tailwindcss";
 @import "tw-shimmer";
+/* transitions.dev motion-token scale + tunable vars (transitions-dev skill, _root.css) */
+@import "./transitions-tokens.css";
+/* transitions.dev transition snippets (modal, toast, shimmer-text, streaming-text) */
+@import "./transitions-dev.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -200,13 +204,8 @@ body {
   animation: shimmer 1.6s linear infinite;
 }
 
-@keyframes typing-dot {
-  0%,60%,100% { transform: translateY(0); opacity: 0.35; }
-  30% { transform: translateY(-4px); opacity: 1; }
-}
-.typing-dot { animation: typing-dot 1.2s infinite; }
-.typing-dot:nth-child(2) { animation-delay: 0.15s; }
-.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+/* .typing-dot retired: loading dots now use transitions-dev 31-matrix-loader
+   (MatrixLoader component + .t-matrix in transitions-dev.css). */
 
 .text-gradient {
   background: linear-gradient(135deg, #ffffff 30%, #a1a1aa 70%, #ffffff 100%);

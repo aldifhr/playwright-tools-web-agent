@@ -44,7 +44,7 @@ import { abortRun, trackRun, untrackRun } from "@/lib/chat-runs";
 import { now, type Approval, type Attachment, type LightboxState, type Msg, type ThinkingEntry } from "@/components/chat/types";
 import { PROGRESS_LABELS, PROVIDER_META, SUGGESTIONS, TOOL_META } from "@/components/chat/meta";
 import { COMMANDS, HELP_TEXT, parseCommand } from "@/components/chat/commands";
-import { downloadXlsx, messageToHtml, parseMarkdownTables, printMessage } from "@/components/chat/export";
+import { downloadXlsx, downloadMarkdown, messageToHtml, parseMarkdownTables, printMessage } from "@/components/chat/export";
 import { suggestTraceFileName, toolCallsToSpec } from "@/lib/trace-to-spec";
 import Sidebar from "@/components/chat/Sidebar";
 import Composer from "@/components/chat/Composer";
@@ -52,6 +52,8 @@ import SearchModal from "@/components/chat/SearchModal";
 import Lightbox from "@/components/chat/Lightbox";
 import ApprovalCard from "@/components/chat/ApprovalCard";
 import ThinkingList from "@/components/chat/ThinkingList";
+import Stagger from "@/components/chat/Stagger";
+import MatrixLoader from "@/components/chat/MatrixLoader";
 
 export default function Chat({ sessionId: lockedSessionId }: { sessionId?: string }) {
   const router = useRouter();
@@ -75,7 +77,16 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusText, setStatusText] = useState(IDLE_STATUS);
+  const [copiedAttach, setCopiedAttach] = useState<number | null>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function copyAttachment(index: number, content: string) {
+    navigator.clipboard?.writeText(content).then(() => {
+      setCopiedAttach(index);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopiedAttach(null), 1500);
+    }).catch(() => {});
+  }  const [statusText, setStatusText] = useState(IDLE_STATUS);
   const [thinkingText, setThinkingText] = useState("");
   const [thinkingHistory, setThinkingHistory] = useState<ThinkingEntry[]>([]);
   const [thinkingOpen, setThinkingOpen] = useState(true);
@@ -98,7 +109,8 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
   const { error: showError, success: showSuccess } = useToast();
 
   async function stopRun(sessionId?: string) {
-    const sid = sessionId ?? activeId ?? undefined;
+    // Guard against React passing the click event when wired as onClick={stopRun}.
+    const sid = (typeof sessionId === "string" ? sessionId : undefined) ?? activeId ?? undefined;
     if (!sid) return;
     const mine = sid === activeId;
     if (mine) {
@@ -299,76 +311,40 @@ export default function Chat({ sessionId: lockedSessionId }: { sessionId?: strin
     bottomRef.current?.scrollIntoView({ behavior });
   }
 
+  // Office/binary documents convert server-side via anydoc → Markdown
+  // (14 formats, single consistent output). No local parsers: on failure the
+  // attachment records an honest error instead of silent garbage.
+  const OFFICE_EXT = /\.(doc|docx|docm|ppt|pps|pot|pptx|pptm|ppsx|ppsm|xls|xlsx|xlsm|xlsb|odt|ods|odp|rtf|epub|csv|pdf)$/i;
+  async function handleOffice(file: File) {
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/docs/convert", { method: "POST", body: form });
+      const data = (await res.json().catch(() => null)) as { markdown?: string; error?: string } | null;
+      if (res.ok && data?.markdown) {
+        setAttachments((current) => [...current.filter((x) => x.name !== file.name), { name: file.name, text: `(converted via anydoc)\n${data.markdown}` }]);
+        return;
+      }
+      throw new Error(data?.error ?? `convert failed (${res.status})`);
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : "convert failed";
+      setAttachments((current) => [...current.filter((x) => x.name !== file.name), { name: file.name, text: `(could not convert ${file.name}: ${reason.slice(0, 160)})` }]);
+    }
+  }
+
   function handleFiles(files: FileList | File[]) {
     const readable = Array.from(files).filter((file) =>
-      /text|json|javascript|typescript|xml|yaml|csv|spreadsheet|excel|pdf|msword|officedocument/.test(file.type) || /\.(txt|md|json|js|ts|tsx|jsx|xml|yaml|yml|csv|log|xls|xlsx|pdf|docx)$/i.test(file.name)
+      /text|json|javascript|typescript|xml|yaml|csv|spreadsheet|excel|pdf|msword|officedocument|presentation|powerpoint/.test(file.type) || /\.(txt|md|json|js|ts|tsx|jsx|xml|yaml|yml|csv|log|xls|xlsx|pdf|docx|doc|ppt|pptx|odt|ods|odp|rtf|epub)$/i.test(file.name)
     );
     readable.slice(0, 4).forEach((file) => {
-      if (/\.(xls|xlsx)$/i.test(file.name)) {
-        void handleExcel(file);
-        return;
-      }
-      if (/\.pdf$/i.test(file.name)) {
-        void handlePdf(file);
-        return;
-      }
-      if (/\.docx$/i.test(file.name)) {
-        void handleDocx(file);
+      if (OFFICE_EXT.test(file.name)) {
+        void handleOffice(file);
         return;
       }
       const reader = new FileReader();
       reader.onload = () => setAttachments((current) => [...current.filter((x) => x.name !== file.name), { name: file.name, text: String(reader.result ?? "") }]);
       reader.readAsText(file);
     });
-  }
-
-  // PDF is binary: extract text per page (lazy-load unpdf only when needed).
-  async function handlePdf(file: File) {
-    try {
-      const { extractText } = await import("unpdf");
-      const buffer = await file.arrayBuffer();
-      const { text, totalPages } = await extractText(buffer);
-      const joined = (Array.isArray(text) ? text.join("\n") : String(text ?? "")).slice(0, 30_000);
-      const label = `(PDF, ${totalPages ?? "?"} pages — first 30k chars)`;
-      setAttachments((current) => [...current.filter((x) => x.name !== file.name), { name: file.name, text: joined ? `${label}\n${joined}` : "(no readable text in PDF)" }]);
-    } catch {
-      setAttachments((current) => [...current.filter((x) => x.name !== file.name), { name: file.name, text: "(failed to parse PDF file)" }]);
-    }
-  }
-
-  // DOCX is binary: extract raw text (lazy-load mammoth only when needed).
-  async function handleDocx(file: File) {
-    try {
-      const mammoth = (await import("mammoth")).default;
-      const buffer = await file.arrayBuffer();
-      const { value } = await mammoth.extractRawText({ arrayBuffer: buffer });
-      const text = String(value ?? "").slice(0, 30_000);
-      setAttachments((current) => [...current.filter((x) => x.name !== file.name), { name: file.name, text: text || "(no readable text in document)" }]);
-    } catch {
-      setAttachments((current) => [...current.filter((x) => x.name !== file.name), { name: file.name, text: "(failed to parse Word document)" }]);
-    }
-  }
-  async function handleExcel(file: File) {
-    try {
-      const XLSX = await import("xlsx");
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array", sheetRows: 200 });
-      const parts: string[] = [];
-      for (const sheetName of workbook.SheetNames.slice(0, 5)) {
-        const rows = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets[sheetName] ?? {}, { header: 1, raw: false, defval: "" }) as string[][];
-        // Drop fully-empty rows (trailing blank lines bloat the prompt).
-        const nonEmpty = rows.filter((r) => r.some((cell) => String(cell ?? "").trim() !== ""));
-        if (!nonEmpty.length) continue;
-        const csv = nonEmpty
-          .map((r) => r.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
-          .join("\n");
-        parts.push(`--- Sheet: ${sheetName} (${nonEmpty.length} rows) ---\n${csv}`);
-      }
-      const text = parts.length ? parts.join("\n") : "(no readable data in workbook)";
-      setAttachments((current) => [...current.filter((x) => x.name !== file.name), { name: file.name, text }]);
-    } catch {
-      setAttachments((current) => [...current.filter((x) => x.name !== file.name), { name: file.name, text: "(failed to parse Excel file)" }]);
-    }
   }
 
   function copyMessage(content: string) {
@@ -602,14 +578,16 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                     return next;
                   });
                 }
-                const label = d.label.toLowerCase();
-                const stage = /test|saving|save|run|assert/.test(label)
-                  ? 3
-                  : /opening|scanning|reading|clicking|typing|screenshot|scrolling|logging|console|select|waiting|storage|cookies|back|browser/.test(label)
-                    ? 2
-                    : /report|finish|complete/.test(label)
-                      ? 4
-                      : 0;
+                // Progress bar follows the server's authoritative phase —
+                // never guessed from label text (labels like "Planning tests…"
+                // or "Pressing key…" misclassified under keyword matching).
+                // Explore → Browsing, Testing/Artifacts → Testing,
+                // Reporting → Reporting. Monotonic: highest phase reached.
+                const stage =
+                  d.phase === "Reporting" ? 4
+                  : d.phase === "Testing" || d.phase === "Artifacts" ? 3
+                  : d.phase === "Explore" ? 2
+                  : 0;
                 if (stage) setProgressStage((current) => Math.max(current, stage));
                 requestAnimationFrame(() => {
                   if (autoScrollRef.current) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -896,17 +874,19 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
             >
               <div className="mx-auto w-full max-w-2xl">
                 {messages.length === 0 ? (
-                  <div className="animate-fade-up pt-6 text-center">
-                    <div className="mx-auto grid h-16 w-16 place-items-center rounded-3xl bg-white shadow-2xl shadow-white/10">
-                      <Sparkles size={28} className="text-black" />
-                    </div>
-                    <h1 className="text-gradient mt-5 text-3xl font-extrabold tracking-tight sm:text-4xl">
-                      Your QA Copilot
-                    </h1>
-                    <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">
-                       Exploratory testing, smoke tests, bug reproduction with screenshot evidence,
-                       and locator discovery — all automated with Playwright.
-                    </p>
+                  <div className="pt-6 text-center">
+                    <Stagger>
+                      <div className="mx-auto grid h-16 w-16 place-items-center rounded-3xl bg-white shadow-2xl shadow-white/10">
+                        <Sparkles size={28} className="text-black" />
+                      </div>
+                      <h1 className="text-gradient mt-5 text-3xl font-extrabold tracking-tight sm:text-4xl">
+                        Your QA Copilot
+                      </h1>
+                      <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">
+                         Exploratory testing, smoke tests, bug reproduction with screenshot evidence,
+                         and locator discovery — all automated with Playwright.
+                      </p>
+                    </Stagger>
                     {(() => {
                       const hasKey = Object.values(settings.keys).some(Boolean);
                       const hasChat = sessions.some((s) => s.messages.length > 0);
@@ -979,16 +959,31 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                                          ))}
                                        </div>
                                      )}
-                                     {!!files.length && (
-                                       <details className="mt-2">
-                                         <summary className="cursor-pointer text-[11px] font-semibold text-zinc-600 hover:text-black">
-                                           Show attached content
-                                         </summary>
-                                         <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-black/5 p-2 text-[10px] font-normal whitespace-pre-wrap text-zinc-700">
-                                           {files.map((f) => `--- ${f.name} ---\n${f.body}`).join("\n")}
-                                         </pre>
-                                       </details>
-                                     )}
+                                      {!!files.length && (
+                                        <details className="mt-2">
+                                          <summary className="cursor-pointer text-[11px] font-semibold text-zinc-600 hover:text-black">
+                                            Show attached content
+                                          </summary>
+                                          {(() => {
+                                            const attached = files.map((f) => `--- ${f.name} ---\n${f.body}`).join("\n");
+                                            return (
+                                              <div className="relative">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => copyAttachment(i, attached)}
+                                                  title="Copy attached content"
+                                                  className="absolute top-2 right-2 flex items-center gap-1 rounded-md bg-black/10 px-2 py-1 text-[10px] font-semibold text-zinc-700 hover:bg-black/20 hover:text-black"
+                                                >
+                                                  <Copy size={10} /> {copiedAttach === i ? "Copied!" : "Copy"}
+                                                </button>
+                                                <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-black/5 p-2 pr-16 text-[10px] font-normal whitespace-pre-wrap text-zinc-700">
+                                                  {attached}
+                                                </pre>
+                                              </div>
+                                            );
+                                          })()}
+                                        </details>
+                                      )}
                                    </>
                                  );
                                })()}
@@ -1041,6 +1036,14 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                                     <FileSpreadsheet size={11} /> XLSX
                                   </button>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={() => downloadMarkdown(`farayagent-${new Date().toISOString().slice(0, 10)}`, m.content)}
+                                  title="Download this result as Markdown"
+                                  className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-zinc-500 hover:bg-white/10 hover:text-white"
+                                >
+                                  <FileText size={11} /> MD
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => printMessage(m.content.split("\n")[0].slice(0, 60) || "FarayAgent report", messageToHtml(m.content))}
@@ -1204,11 +1207,9 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                         <div className="glass min-w-0 flex-1 rounded-2xl rounded-tl-md px-4 py-3 text-sm text-zinc-300">
                           <div className="flex items-center gap-2">
                             <span className="flex gap-1">
-                              <span className="typing-dot h-1.5 w-1.5 rounded-full bg-white" />
-                              <span className="typing-dot h-1.5 w-1.5 rounded-full bg-white" />
-                              <span className="typing-dot h-1.5 w-1.5 rounded-full bg-white" />
+                              <MatrixLoader variant="scan" />
                             </span>
-                           <span className="truncate">{stopping ? "Stopping agent…" : `${agentMode === "sub" ? "QA sub-agent" : "Main agent"} • ${statusText}`}</span>
+                           <span className="t-shimmer truncate" data-text={stopping ? "Stopping agent…" : `${agentMode === "sub" ? "QA sub-agent" : "Main agent"} • ${statusText}`}>{stopping ? "Stopping agent…" : `${agentMode === "sub" ? "QA sub-agent" : "Main agent"} • ${statusText}`}</span>
                           </div>
                            <div className="mt-3 grid grid-cols-4 gap-1.5">
                             {PROGRESS_LABELS.map((label, index) => (
@@ -1222,7 +1223,7 @@ function splitFiles(content: string): { text: string; files: { name: string; bod
                              <button type="button" onClick={() => setThinkingOpen((open) => !open)} className="flex w-full items-center gap-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-500 hover:text-white">
                                <Brain size={12} /> Agent thinking <ChevronDown size={12} className={`ml-auto transition ${thinkingOpen ? "rotate-180" : ""}`} />
                              </button>
-                               {thinkingOpen && <div className="mt-1.5">{thinkingHistory.length ? <ThinkingList entries={thinkingHistory} /> : <p className="text-xs text-zinc-500">Waiting for agent activity…</p>}</div>}
+                               {thinkingOpen && <div className="mt-1.5">{thinkingHistory.length ? <ThinkingList entries={thinkingHistory} /> : <p className="text-xs text-zinc-500"><span className="t-shimmer" data-text="Waiting for agent activity…">Waiting for agent activity…</span></p>}</div>}
                            </div>}
                            {!!approval && (
                              <ApprovalCard approval={approval} approving={approving} onRespond={(ok) => void respondApproval(ok)} onAlwaysAllow={() => void respondApproval(true, true)} />

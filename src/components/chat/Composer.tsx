@@ -124,7 +124,7 @@ export default function Composer({
           <div className="flex items-center gap-2 px-2 pb-1">
              <label className="grid h-8 w-8 cursor-pointer place-items-center rounded-xl text-zinc-500 hover:bg-white/10 hover:text-white" title="Attach text file">
                <FileText size={14} />
-               <input type="file" multiple accept=".txt,.md,.json,.js,.ts,.tsx,.jsx,.xml,.yaml,.yml,.csv,.log,.xls,.xlsx,.pdf,.docx" className="hidden" onChange={(event) => { if (event.target.files) handleFiles(event.target.files); event.currentTarget.value = ""; }} />
+                <input type="file" multiple accept=".txt,.md,.json,.js,.ts,.tsx,.jsx,.xml,.yaml,.yml,.csv,.log,.xls,.xlsx,.xlsm,.xlsb,.pdf,.docx,.doc,.ppt,.pptx,.odt,.ods,.odp,.rtf,.epub" className="hidden" onChange={(event) => { if (event.target.files) handleFiles(event.target.files); event.currentTarget.value = ""; }} />
              </label>
              <div className="relative hidden sm:block">
               <button
@@ -161,11 +161,11 @@ export default function Composer({
             </div>
             <span className="ml-auto text-[10px] text-zinc-600">{input.length}/2000</span>
             {loading ? (
-              <button
-                type="button"
-                 onClick={stopRun}
-                 disabled={stopping}
-                 title="Stop agent"
+                <button
+                  type="button"
+                  onClick={() => stopRun()}
+                  disabled={stopping}
+                  title="Stop agent"
                 className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-black shadow-lg shadow-white/10 transition hover:bg-zinc-200 active:scale-95"
               >
                  {stopping ? <Loader2 size={15} className="animate-spin" /> : <Square size={15} fill="currentColor" />}

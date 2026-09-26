@@ -94,6 +94,26 @@ export async function readExplorationCheckpoint(site: string): Promise<Explorati
   }
 }
 
+// Fallback for a bare "continue" with no site URL: the newest checkpoint for
+// a REAL site (never the "current site" placeholder a collapsed scope writes).
+export async function readLatestCheckpoint(): Promise<ExplorationCheckpoint | null> {
+  try {
+    const dir = join(DIR, ".exploration");
+    const files = (await fs.readdir(dir)).filter((f) => f.endsWith(".json"));
+    let best: ExplorationCheckpoint | null = null;
+    for (const f of files) {
+      try {
+        const cp = JSON.parse(await fs.readFile(join(dir, f), "utf-8")) as ExplorationCheckpoint;
+        if (!cp || cp.site === "current site") continue;
+        if (!best || (cp.updatedAt ?? 0) > (best.updatedAt ?? 0)) best = cp;
+      } catch {}
+    }
+    return best;
+  } catch {
+    return null;
+  }
+}
+
 export async function saveExplorationCheckpoint(checkpoint: Omit<ExplorationCheckpoint, "updatedAt">) {
   const file = checkpointFile(checkpoint.site);
   await fs.mkdir(join(DIR, ".exploration"), { recursive: true });

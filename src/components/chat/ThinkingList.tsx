@@ -1,5 +1,7 @@
 "use client";
 
+import StreamWords from "@/components/chat/StreamWords";
+
 export type ThinkingEntry = string | { text: string; phase?: string };
 
 function normalize(entry: ThinkingEntry): { text: string; phase: string } {
@@ -26,7 +28,7 @@ export default function ThinkingList({ entries }: { entries: ThinkingEntry[] }) 
             </p>
           )}
           {block.texts.map((text, ti) => (
-            <p key={`${text.slice(0, 24)}-${ti}`} className="text-xs leading-relaxed text-zinc-400">{text}</p>
+            <p key={`${text.slice(0, 24)}-${ti}`} className="text-xs leading-relaxed text-zinc-400"><StreamWords text={text} /></p>
           ))}
         </div>
       ))}
